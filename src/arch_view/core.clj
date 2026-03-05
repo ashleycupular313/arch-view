@@ -32,22 +32,27 @@
 (defn parse-args
   [args]
   (loop [remaining args
-         opts {:project-path "." :no-gui false}]
+         opts {:project-path "." :no-gui false :out nil}]
     (if (empty? remaining)
       opts
       (let [arg (first remaining)]
         (cond
           (= "--project-path" arg) (recur (nnext remaining)
                                           (assoc opts :project-path (second remaining)))
+          (= "--out" arg) (recur (nnext remaining)
+                                 (assoc opts :out (second remaining)))
           (= "--no-gui" arg) (recur (next remaining)
                                     (assoc opts :no-gui true))
           :else (recur (next remaining) opts))))))
 
 (defn -main [& args]
-  (let [{:keys [project-path no-gui]} (parse-args args)
-        {:keys [graph scene]} (load-architecture project-path)]
+  (let [{:keys [project-path no-gui out]} (parse-args args)
+        architecture (load-architecture project-path)
+        {:keys [graph scene]} architecture]
     (println "Architecture loaded")
     (println "Nodes:" (count (:nodes graph)))
     (println "Edges:" (count (:edges graph)))
+    (when out
+      (spit out (pr-str architecture)))
     (when-not no-gui
       (render/show! scene {:title (str "architecture-viewer: " (str/trim project-path))}))))
