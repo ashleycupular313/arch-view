@@ -1,5 +1,10 @@
-{:paths ["src" "test"]
+{:paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.11.1"}
         quil/quil {:mvn/version "4.3.1563"}}
  :aliases
- {:test {:main-opts ["-m" "arch-view.test-runner"]}}}
+ {:check {:extra-deps {unclebob/speclj-structure-check {:git/url "https://github.com/unclebob/speclj-structure-check.git"
+                                                        :sha "7cc804c4e99b3482ca1d8a26b735ed41751a03ab"}}
+          :main-opts ["-m" "speclj-structure-check.core"]}
+  :spec {:extra-paths ["spec"]
+         :extra-deps {speclj/speclj {:mvn/version "3.10.0"}}
+         :main-opts ["-m" "speclj.main" "-c"]}}}

@@ -44,6 +44,10 @@
 - Commit only when tests pass.
 - Never push to git without explicit approval.
 
+### Test Commands
+- Run Speclj structure check first: `clojure -M:check spec/`
+- Run unit tests with Speclj: `clojure -M:spec`
+
 ## Implementation Backlog
 
 ### MVP
