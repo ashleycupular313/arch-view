@@ -269,6 +269,21 @@
       (should-not= nil o2)
       (should= 15.0 (Math/abs (- o1 o2))))))
 
+  (it "separates overlapping angled arrows by 15px using perpendicular offsets"
+    (let [points {"a" {:x 100.0 :y 100.0}
+                  "b" {:x 200.0 :y 200.0}
+                  "c" {:x 120.0 :y 120.0}
+                  "d" {:x 220.0 :y 220.0}}
+          edges [{:from "a" :to "b" :type :direct :arrowhead :standard}
+                 {:from "c" :to "d" :type :direct :arrowhead :standard}]
+          [e1 e2] (sut/apply-parallel-arrow-spacing edges points)
+          v1 [(:parallel-offset-x e1) (:parallel-offset-y e1)]
+          v2 [(:parallel-offset-x e2) (:parallel-offset-y e2)]
+          dx (- (first v1) (first v2))
+          dy (- (second v1) (second v2))
+          dist (Math/sqrt (+ (* dx dx) (* dy dy)))]
+      (should= 15.0 dist)))
+
   (it "cycles declutter modes across all four states"
     (should= :concrete (sut/next-declutter-mode :all))
     (should= :abstract (sut/next-declutter-mode :concrete))

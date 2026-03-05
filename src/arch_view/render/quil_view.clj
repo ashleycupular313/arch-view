@@ -428,33 +428,48 @@
                                   :arrowhead (arrowhead-for type)})))
                         (sort-by (juxt :from :to))
                         vec)]
-    (letfn [(span [{:keys [from-point to-point]}]
-              (let [[_ y1] from-point
-                    [_ y2] to-point]
-                [(min y1 y2) (max y1 y2)]))
-            (overlap? [[a0 a1] [b0 b1]]
-              (< (max a0 b0) (min a1 b1)))
+    (letfn [(base-points [{:keys [from-point to-point]}]
+              (let [[x1 y1] from-point
+                    [x2 y2] to-point]
+                [x1 y1 x2 y2]))
+            (bbox [edge]
+              (let [[x1 y1 x2 y2] (base-points edge)]
+                {:min-x (min x1 x2)
+                 :max-x (max x1 x2)
+                 :min-y (min y1 y2)
+                 :max-y (max y1 y2)}))
+            (bbox-overlap? [a b]
+              (and (<= (max (:min-x a) (:min-x b))
+                       (min (:max-x a) (:max-x b)))
+                   (<= (max (:min-y a) (:min-y b))
+                       (min (:max-y a) (:max-y b)))))
+            (lane-available? [lane-boxes box]
+              (not-any? #(bbox-overlap? % box) lane-boxes))
             (assign-lane [lanes edge]
-              (let [[start end] (span edge)
-                    lane-idx (or (first (keep-indexed (fn [idx lane-end]
-                                                        (when (< lane-end start) idx))
+              (let [box (bbox edge)
+                    lane-idx (or (first (keep-indexed (fn [idx lane-boxes]
+                                                        (when (lane-available? lane-boxes box) idx))
                                                       lanes))
                                  (count lanes))]
                 (if (< lane-idx (count lanes))
                   {:lane-idx lane-idx
-                   :lanes (assoc lanes lane-idx end)}
+                   :lanes (update lanes lane-idx conj box)}
                   {:lane-idx lane-idx
-                   :lanes (conj lanes end)})))
+                   :lanes (conj lanes [box])})))
             (offset-for-lane [lane lane-count]
               (let [raw (* 15.0 (- lane (/ (dec lane-count) 2.0)))]
                 (-> raw
                     (max (- max-parallel-offset))
-                    (min max-parallel-offset))))]
+                    (min max-parallel-offset))))
+            (normal-unit [x1 y1 x2 y2]
+              (let [dx (- x2 x1)
+                    dy (- y2 y1)
+                    len (max 0.001 (Math/sqrt (+ (* dx dx) (* dy dy))))]
+                [(/ (- dy) len) (/ dx len)]))]
       (let [{:keys [edges max-lane]}
             (reduce (fn [{:keys [lanes edges max-lane]} edge]
                       (let [{:keys [lane-idx lanes]} (assign-lane lanes edge)
-                            [x1 y1] (:from-point edge)
-                            [x2 y2] (:to-point edge)]
+                            [x1 y1 x2 y2] (base-points edge)]
                         {:lanes lanes
                          :edges (conj edges (assoc edge :lane lane-idx))
                          :max-lane (max max-lane lane-idx)}))
@@ -465,11 +480,10 @@
                 (let [offset (offset-for-lane lane lane-count)
                       [x1 y1] from-point
                       [x2 y2] to-point
-                      horizontal? (>= (Math/abs (- x2 x1))
-                                      (Math/abs (- y2 y1)))]
+                      [nx ny] (normal-unit x1 y1 x2 y2)]
                   (assoc edge
-                         :parallel-offset-x (if horizontal? 0.0 offset)
-                         :parallel-offset-y (if horizontal? offset 0.0))))
+                         :parallel-offset-x (* nx offset)
+                         :parallel-offset-y (* ny offset))))
               edges)))))
 
 (defn declutter-edge-drawables
@@ -490,23 +504,38 @@
             (let [[x1 y1] (or from-point (let [{x :x y :y} (get points from)] [x y]))
                   [x2 y2] (or to-point (let [{x :x y :y} (get points to)] [x y]))]
               [x1 y1 x2 y2]))
-          (span [edge]
-            (let [[_ y1 _ y2] (base-points edge)]
-              [(min y1 y2) (max y1 y2)]))
+          (bbox [edge]
+            (let [[x1 y1 x2 y2] (base-points edge)]
+              {:min-x (min x1 x2)
+               :max-x (max x1 x2)
+               :min-y (min y1 y2)
+               :max-y (max y1 y2)}))
+          (bbox-overlap? [a b]
+            (and (<= (max (:min-x a) (:min-x b))
+                     (min (:max-x a) (:max-x b)))
+                 (<= (max (:min-y a) (:min-y b))
+                     (min (:max-y a) (:max-y b)))))
+          (lane-available? [lane-boxes box]
+            (not-any? #(bbox-overlap? % box) lane-boxes))
           (assign-lane [lanes edge]
-            (let [[start end] (span edge)
-                  lane-idx (or (first (keep-indexed (fn [idx lane-end]
-                                                      (when (< lane-end start) idx))
+            (let [box (bbox edge)
+                  lane-idx (or (first (keep-indexed (fn [idx lane-boxes]
+                                                      (when (lane-available? lane-boxes box) idx))
                                                     lanes))
                                (count lanes))]
               (if (< lane-idx (count lanes))
-                {:lane lane-idx :lanes (assoc lanes lane-idx end)}
-                {:lane lane-idx :lanes (conj lanes end)})))
+                {:lane lane-idx :lanes (update lanes lane-idx conj box)}
+                {:lane lane-idx :lanes (conj lanes [box])})))
           (offset-for-lane [lane lane-count]
             (let [raw (* 15.0 (- lane (/ (dec lane-count) 2.0)))]
               (-> raw
                   (max (- max-parallel-offset))
-                  (min max-parallel-offset))))]
+                  (min max-parallel-offset))))
+          (normal-unit [x1 y1 x2 y2]
+            (let [dx (- x2 x1)
+                  dy (- y2 y1)
+                  len (max 0.001 (Math/sqrt (+ (* dx dx) (* dy dy))))]
+              [(/ (- dy) len) (/ dx len)]))]
     (let [{:keys [edges max-lane]}
           (reduce (fn [{:keys [lanes edges max-lane]} edge]
                     (let [{:keys [lane lanes]} (assign-lane lanes edge)]
@@ -519,11 +548,10 @@
       (mapv (fn [{:keys [lane] :as edge}]
               (let [[x1 y1 x2 y2] (base-points edge)
                     offset (offset-for-lane lane lane-count)
-                    horizontal? (>= (Math/abs (- x2 x1))
-                                    (Math/abs (- y2 y1)))]
-                (if horizontal?
-                  (assoc edge :parallel-offset-y offset)
-                  (assoc edge :parallel-offset-x offset))))
+                    [nx ny] (normal-unit x1 y1 x2 y2)]
+                (assoc edge
+                       :parallel-offset-x (* nx offset)
+                       :parallel-offset-y (* ny offset))))
             edges))))
 
 (defn- label-hitbox
