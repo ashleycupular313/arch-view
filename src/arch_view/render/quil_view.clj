@@ -59,10 +59,10 @@
   [{:keys [display-label label]}]
   (or display-label label))
 
-(def ^:private toolbar-height 34.0)
+(def ^:private toolbar-height 38.0)
 (def ^:private back-button-width 80.0)
 (def ^:private declutter-button-width 240.0)
-(def ^:private button-height 22.0)
+(def ^:private button-height 26.0)
 
 (def declutter-modes [:all :concrete :abstract :between-layers])
 
@@ -330,7 +330,7 @@
               m)))
         module-positions))
 
-(declare view-architecture drilldown-scene)
+(declare view-architecture drilldown-scene push-nav-state)
 
 (defn- drillable?
   [state hovered]
@@ -434,7 +434,9 @@
     (q/rect 0 0 3000 toolbar-height)
     (q/fill (if can-go-back? 225 205))
     (q/rect (:x back-rect) (:y back-rect) (:width back-rect) (:height back-rect))
-    (q/fill 0 0 0)
+    (if can-go-back?
+      (q/fill 0 0 0)
+      (q/fill 120 120 120))
     (q/text-align :center :center)
     (q/text "Back" (+ (:x back-rect) (/ (:width back-rect) 2.0)) (+ (:y back-rect) (/ (:height back-rect) 2.0)))
     (q/fill 225)
@@ -543,31 +545,44 @@
       (let [candidate (conj (or namespace-path []) (:module hovered))
             child-view (view-architecture (:architecture state) candidate)]
         (if (seq (get-in child-view [:graph :nodes]))
-          (drilldown-scene state candidate)
+          (-> state
+              push-nav-state
+              (drilldown-scene candidate 0.0))
           state))
       state)))
 
 (defn- navigate-up
-  [{:keys [namespace-path] :as state}]
-  (let [current-path (vec (or namespace-path []))]
-    (if (seq current-path)
-      (drilldown-scene state (vec (butlast current-path)))
+  [{:keys [nav-stack] :as state}]
+  (let [stack (vec (or nav-stack []))]
+    (if (seq stack)
+      (let [{:keys [path scroll-y]} (peek stack)]
+        (-> state
+            (assoc :nav-stack (pop stack))
+            (drilldown-scene (vec (or path [])) scroll-y)))
       state)))
 
 (defn- toolbar-click-target
-  [mx my]
+  [state mx my]
   (cond
-    (point-in-rect? (back-button-rect) mx my) :back
+    (and (seq (:namespace-path state))
+         (point-in-rect? (back-button-rect) mx my)) :back
     (point-in-rect? (declutter-button-rect) mx my) :declutter
     :else nil))
+
+(defn- point-in-toolbar?
+  [mx my]
+  (and (>= mx 0.0)
+       (<= my toolbar-height)))
 
 (defn- apply-toolbar-click
   [state event]
   (let [[mx my] (mouse-pos event)]
-    (case (toolbar-click-target mx my)
+    (if-not (point-in-toolbar? mx my)
+      nil
+      (case (toolbar-click-target state mx my)
       :back (navigate-up state)
       :declutter (update state :declutter-mode next-declutter-mode)
-      nil)))
+      state))))
 
 (defn handle-mouse-released
   [{:keys [dragging-scrollbar?] :as state} _event]
@@ -642,12 +657,13 @@
      :module->full-name module->full-name}))
 
 (defn- drilldown-scene
-  [state path]
+  [state path scroll-y]
   (let [view (view-architecture (:architecture state) path)
         scene (-> (build-scene view)
                   (attach-drillable-markers (:architecture state) path))]
     (assoc state
            :namespace-path path
+           :scroll-y (double (or scroll-y 0.0))
            :scene scene)))
 
 (defn initial-scene-for-show
@@ -657,6 +673,12 @@
       (-> (build-scene initial-view)
           (attach-drillable-markers architecture [])))
     scene))
+
+(defn- push-nav-state
+  [{:keys [namespace-path scroll-y nav-stack] :as state}]
+  (assoc state :nav-stack (conj (vec (or nav-stack []))
+                                {:path (vec (or namespace-path []))
+                                 :scroll-y (double (or scroll-y 0.0))})))
 
 (defn show!
   ([scene]
@@ -682,6 +704,7 @@
                 {:scene initial-scene
                  :architecture effective-architecture
                  :namespace-path (when architecture [])
+                 :nav-stack []
                  :declutter-mode :all
                  :scroll-y 0.0
                  :dragging-scrollbar? false

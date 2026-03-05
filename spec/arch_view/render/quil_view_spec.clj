@@ -270,13 +270,50 @@
           state {:scene alpha-scene
                  :architecture architecture
                  :namespace-path ["alpha"]
+                 :nav-stack [{:path [] :scroll-y 140.0}]
                  :declutter-mode :all
-                 :scroll-y 0.0
+                 :scroll-y 40.0
                  :dragging-scrollbar? false
                  :drag-offset nil
                  :viewport-height 600
                  :viewport-width 1200}
           next-state (sut/handle-mouse-clicked state {:x 20.0 :y 10.0})]
       (should= [] (:namespace-path next-state))
+      (should= 140.0 (:scroll-y next-state))
       (should= #{"alpha" "beta"}
                (->> (get-in next-state [:scene :module-positions]) (map :module) set)))))
+
+  (it "clicking a namespace pushes current scroll and resets to top"
+    (let [architecture {:graph {:nodes #{"empire.alpha.one"
+                                         "empire.alpha.two"
+                                         "empire.beta.one"}
+                                :edges #{}
+                                :abstract-modules #{}}
+                        :classified-edges #{}}
+          root-view (sut/view-architecture architecture [])
+          root-scene (sut/attach-drillable-markers (sut/build-scene root-view) architecture [])
+          alpha-pos (some #(when (= "alpha" (:module %)) %) (:module-positions root-scene))
+          state {:scene root-scene
+                 :architecture architecture
+                 :namespace-path []
+                 :nav-stack []
+                 :declutter-mode :all
+                 :scroll-y 123.0
+                 :dragging-scrollbar? false
+                 :drag-offset nil
+                 :viewport-height 600
+                 :viewport-width 1200}
+          next-state (sut/handle-mouse-clicked state {:x (:x alpha-pos) :y (- (:y alpha-pos) 123.0)})]
+      (should= ["alpha"] (:namespace-path next-state))
+      (should= 0.0 (:scroll-y next-state))
+      (should= [{:path [] :scroll-y 123.0}] (:nav-stack next-state))))
+
+  (it "back button at top level does nothing"
+    (let [state {:scene {:module-positions [] :layer-rects [] :edge-drawables []}
+                 :architecture nil
+                 :namespace-path []
+                 :nav-stack []
+                 :declutter-mode :all
+                 :dragging-scrollbar? false}
+          next-state (sut/handle-mouse-clicked state {:x 20.0 :y 10.0})]
+      (should= state next-state)))
