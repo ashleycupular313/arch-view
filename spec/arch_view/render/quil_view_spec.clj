@@ -198,6 +198,25 @@
                                                   :modifiers ctrl-mask})]
       (should= 1.1 (:zoom zoomed))))
 
+  (it "zooms on ctrl-right mouse pressed and suppresses following click"
+    (let [state {:scene {:layer-rects [{:x 0.0 :y 0.0 :width 100.0 :height 1000.0}]
+                         :module-positions []
+                         :edge-drawables []}
+                 :architecture nil
+                 :namespace-path []
+                 :zoom 1.0
+                 :zoom-stack []
+                 :scroll-y 0.0
+                 :viewport-height 600
+                 :viewport-width 1200
+                 :dragging-scrollbar? false}
+          pressed (sut/handle-mouse-pressed state {:button 3 :modifiers 128})
+          clicked (sut/handle-mouse-clicked pressed {:button 3 :modifiers 128})]
+      (should= 1.1 (:zoom pressed))
+      (should= true (:suppress-next-click? pressed))
+      (should= false (:suppress-next-click? clicked))
+      (should= 1.1 (:zoom clicked))))
+
   (it "exits sketch when escape is pressed"
     (let [exited? (atom false)]
       (with-redefs [quil.core/exit (fn [] (reset! exited? true))]

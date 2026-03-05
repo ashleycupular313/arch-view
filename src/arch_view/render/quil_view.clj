@@ -737,7 +737,7 @@
               m)))
         module-positions))
 
-(declare view-architecture drilldown-scene push-nav-state)
+(declare view-architecture drilldown-scene push-nav-state apply-zoom-click)
 
 (defn- drillable?
   [state hovered]
@@ -1090,14 +1090,19 @@
 
 (defn handle-mouse-pressed
   [{:keys [scene scroll-y viewport-height viewport-width zoom] :as state} event]
-  (let [content-height (scaled-content-height scene (or zoom 1.0))
-        thumb (scrollbar-rect content-height viewport-height scroll-y viewport-width)
-        [mx my] (mouse-pos event)]
-    (if (and thumb (point-in-rect? thumb mx my))
-      (assoc state
-             :dragging-scrollbar? true
-             :drag-offset (- my (:y thumb)))
-      state)))
+  (or (when-let [zoomed (apply-zoom-click state event)]
+        (assoc zoomed
+               :suppress-next-click? true
+               :dragging-scrollbar? false
+               :drag-offset nil))
+      (let [content-height (scaled-content-height scene (or zoom 1.0))
+            thumb (scrollbar-rect content-height viewport-height scroll-y viewport-width)
+            [mx my] (mouse-pos event)]
+        (if (and thumb (point-in-rect? thumb mx my))
+          (assoc state
+                 :dragging-scrollbar? true
+                 :drag-offset (- my (:y thumb)))
+          state))))
 
 (defn handle-mouse-dragged
   [{:keys [scene viewport-height dragging-scrollbar? drag-offset zoom] :as state} event]
@@ -1169,10 +1174,17 @@
         mod-set (cond
                   (set? mods) mods
                   (sequential? mods) (set mods)
-                  :else #{})]
+                  :else #{})
+        ctrl-held? (try
+                     (and (q/key-pressed?)
+                          (contains? #{:control :ctrl}
+                                     (q/key-as-keyword)))
+                     (catch Throwable _
+                       false))]
     (or (true? (:control event))
         (true? (:ctrl event))
         (true? (:control-key? event))
+        ctrl-held?
         (contains? mod-set :control)
         (contains? mod-set :ctrl)
         (contains? mod-set :control-down)
@@ -1182,7 +1194,13 @@
 
 (defn- button-kind
   [event]
-  (let [b (or (:button event) (:mouse-button event) (:which event))]
+  (let [b (or (:button event)
+              (:mouse-button event)
+              (:which event)
+              (try
+                (q/mouse-button)
+                (catch Throwable _
+                  nil)))]
     (cond
       (keyword? b) b
       (= b 1) :left
@@ -1226,21 +1244,25 @@
       nil)))
 
 (defn handle-mouse-released
-  [{:keys [dragging-scrollbar?] :as state} event]
+  [{:keys [dragging-scrollbar? suppress-next-click?] :as state} event]
   (if dragging-scrollbar?
-    (assoc state :dragging-scrollbar? false :drag-offset nil)
-    (let [base-state (assoc state :dragging-scrollbar? false :drag-offset nil)]
-      (or (apply-zoom-click base-state event)
-          (apply-toolbar-click base-state event)
-          (apply-drilldown-click base-state event)))))
+    (assoc state :dragging-scrollbar? false :drag-offset nil :suppress-next-click? false)
+    (if suppress-next-click?
+      (assoc state :suppress-next-click? false :dragging-scrollbar? false :drag-offset nil)
+      (let [base-state (assoc state :dragging-scrollbar? false :drag-offset nil)]
+        (or (apply-zoom-click base-state event)
+            (apply-toolbar-click base-state event)
+            (apply-drilldown-click base-state event))))))
 
 (defn handle-mouse-clicked
   [state event]
   (if (:dragging-scrollbar? state)
     state
-    (or (apply-zoom-click state event)
-        (apply-toolbar-click state event)
-        (apply-drilldown-click state event))))
+    (if (:suppress-next-click? state)
+      (assoc state :suppress-next-click? false)
+      (or (apply-zoom-click state event)
+          (apply-toolbar-click state event)
+          (apply-drilldown-click state event)))))
 
 (defn- namespace-segments
   [module]
@@ -1486,6 +1508,7 @@
                  :declutter-mode :all
                  :zoom 1.0
                  :zoom-stack []
+                 :suppress-next-click? false
                  :scroll-y 0.0
                  :dragging-scrollbar? false
                  :drag-offset nil
