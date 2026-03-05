@@ -131,3 +131,11 @@
        :setup (fn [] scene)
        :draw draw-scene
        :middleware [m/fun-mode]))))
+
+(defn wait-until-closed!
+  [sketch]
+  (when sketch
+    (loop []
+      (when (.isLooping sketch)
+        (Thread/sleep 100)
+        (recur)))))

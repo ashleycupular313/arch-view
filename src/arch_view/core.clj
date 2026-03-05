@@ -55,4 +55,5 @@
     (when out
       (spit out (pr-str architecture)))
     (when-not no-gui
-      (render/show! scene {:title (str "architecture-viewer: " (str/trim project-path))}))))
+      (-> (render/show! scene {:title (str "architecture-viewer: " (str/trim project-path))})
+          (render/wait-until-closed!)))))
