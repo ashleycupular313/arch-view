@@ -346,12 +346,15 @@
    (-> y double (max min-y) (min max-y))])
 
 (defn- draw-edge
-  [points bounds {:keys [from to from-point to-point arrowhead preserve-endpoints? parallel-offset]}]
-  (let [offset (double (or parallel-offset 0.0))
+  [points bounds {:keys [from to from-point to-point arrowhead preserve-endpoints? parallel-offset-x parallel-offset-y]}]
+  (let [offset-x (double (or parallel-offset-x 0.0))
+        offset-y (double (or parallel-offset-y 0.0))
         [x1 y1] (or from-point (let [{x :x y :y} (get points from)] [x y]))
         [x2 y2] (or to-point (let [{x :x y :y} (get points to)] [x y]))
-        x1 (+ (double x1) offset)
-        x2 (+ (double x2) offset)
+        x1 (+ (double x1) offset-x)
+        x2 (+ (double x2) offset-x)
+        y1 (+ (double y1) offset-y)
+        y2 (+ (double y2) offset-y)
         [x1 y1] (clamp-point [x1 y1] bounds)
         [x2 y2] (clamp-point [x2 y2] bounds)]
     (when (and x1 y1 x2 y2)
@@ -424,7 +427,7 @@
             (assign-lane [lanes edge]
               (let [[start end] (span edge)
                     lane-idx (or (first (keep-indexed (fn [idx lane-end]
-                                                        (when (<= lane-end start) idx))
+                                                        (when (< lane-end start) idx))
                                                       lanes))
                                  (count lanes))]
                 (if (< lane-idx (count lanes))
@@ -448,10 +451,16 @@
         (mapv (fn [{:keys [lane from-point to-point] :as edge}]
                 (let [offset (offset-for-lane lane lane-count)
                       [x1 y1] from-point
-                      [x2 y2] to-point]
+                      [x2 y2] to-point
+                      horizontal? (>= (Math/abs (- x2 x1))
+                                      (Math/abs (- y2 y1)))]
                   (assoc edge
-                         :from-point [(+ x1 offset) y1]
-                         :to-point [(+ x2 offset) y2])))
+                         :from-point (if horizontal?
+                                       [x1 (+ y1 offset)]
+                                       [(+ x1 offset) y1])
+                         :to-point (if horizontal?
+                                     [x2 (+ y2 offset)]
+                                     [(+ x2 offset) y2]))))
               edges)))))
 
 (defn declutter-edge-drawables
@@ -478,7 +487,7 @@
           (assign-lane [lanes edge]
             (let [[start end] (span edge)
                   lane-idx (or (first (keep-indexed (fn [idx lane-end]
-                                                      (when (<= lane-end start) idx))
+                                                      (when (< lane-end start) idx))
                                                     lanes))
                                (count lanes))]
               (if (< lane-idx (count lanes))
@@ -496,7 +505,13 @@
                   edge-drawables)
           lane-count (inc (max 0 max-lane))]
       (mapv (fn [{:keys [lane] :as edge}]
-              (assoc edge :parallel-offset (offset-for-lane lane lane-count)))
+              (let [[x1 y1 x2 y2] (base-points edge)
+                    offset (offset-for-lane lane lane-count)
+                    horizontal? (>= (Math/abs (- x2 x1))
+                                    (Math/abs (- y2 y1)))]
+                (if horizontal?
+                  (assoc edge :parallel-offset-y offset)
+                  (assoc edge :parallel-offset-x offset))))
             edges))))
 
 (defn- label-hitbox
@@ -628,7 +643,7 @@
       (clamp-scroll (* normalized max-scroll) content-height viewport-height))))
 
 (defn- draw-scene-content
-  [scene declutter-mode]
+  [scene declutter-mode viewport-width viewport-height]
   (q/background 250 250 250)
   (doseq [{:keys [x y width height label]} (:layer-rects scene)]
     (q/fill 225 233 242)
@@ -649,10 +664,10 @@
         spaced-edges (if (= :between-layers declutter-mode)
                        edge-drawables
                        (apply-parallel-arrow-spacing edge-drawables points))
-        bounds {:min-x 2.0
-                :max-x (- (content-width-for-scene scene) 2.0)
-                :min-y 2.0
-                :max-y (- (content-height-for-scene scene) 2.0)}]
+        bounds {:min-x 14.0
+                :max-x (- (double viewport-width) 20.0)
+                :min-y 14.0
+                :max-y (- (content-height-for-scene scene) 14.0)}]
     (doseq [edge spaced-edges]
       (draw-edge points bounds edge))))
 
@@ -795,7 +810,7 @@
     (q/background 250 250 250)
     (q/push-matrix)
     (q/translate 0 (- scroll-y))
-    (draw-scene-content scene declutter-mode)
+    (draw-scene-content scene declutter-mode viewport-width viewport-height)
     (q/pop-matrix)
     (draw-toolbar state)
     (cond

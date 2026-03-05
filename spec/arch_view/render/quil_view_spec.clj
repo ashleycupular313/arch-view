@@ -249,9 +249,13 @@
           edges [{:from "a" :to "b" :type :direct :arrowhead :standard}
                  {:from "c" :to "d" :type :direct :arrowhead :standard}]
           spaced (sut/apply-parallel-arrow-spacing edges points)
-          [e1 e2] spaced]
+          [e1 e2] spaced
+          o1 (or (:parallel-offset-x e1) (:parallel-offset-y e1))
+          o2 (or (:parallel-offset-x e2) (:parallel-offset-y e2))]
       (should= 2 (count spaced))
-      (should= 15.0 (Math/abs (- (:parallel-offset e1) (:parallel-offset e2))))))
+      (should-not= nil o1)
+      (should-not= nil o2)
+      (should= 15.0 (Math/abs (- o1 o2))))))
 
   (it "cycles declutter modes across all four states"
     (should= :concrete (sut/next-declutter-mode :all))
@@ -356,7 +360,7 @@
       (should= [] (:namespace-path next-state))
       (should= 140.0 (:scroll-y next-state))
       (should= #{"alpha" "beta"}
-               (->> (get-in next-state [:scene :module-positions]) (map :module) set)))))
+               (->> (get-in next-state [:scene :module-positions]) (map :module) set))))
 
   (it "clicking a namespace pushes current scroll and resets to top"
     (let [architecture {:graph {:nodes #{"empire.alpha.one"
