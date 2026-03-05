@@ -175,51 +175,58 @@
     (should= 1500.0 (sut/thumb-y->scroll 10000.0 2000 500)))
 
   (it "zooms in on + key and restores prior zoom on - key"
-    (let [state {:scene {:layer-rects [{:x 0.0 :y 0.0 :width 100.0 :height 1000.0}]}
+    (let [state {:scene {:layer-rects [{:x 0.0 :y 0.0 :width 2000.0 :height 1000.0}]}
                  :zoom 1.0
                  :zoom-stack []
+                 :scroll-x 40.0
                  :scroll-y 120.0
                  :viewport-height 600
                  :viewport-width 1200
                  :dragging-scrollbar? false}
-          zoomed (sut/handle-key-pressed state {:key \+ :y 200.0})
-          restored (sut/handle-key-pressed zoomed {:key \- :y 200.0})]
+          zoomed (sut/handle-key-pressed state {:key \+ :x 300.0 :y 200.0})
+          restored (sut/handle-key-pressed zoomed {:key \- :x 300.0 :y 200.0})]
       (should= 1.1 (:zoom zoomed))
       (should= 1 (count (:zoom-stack zoomed)))
       (should= 1.0 (:zoom restored))
+      (should= 40.0 (:scroll-x restored))
       (should= 0 (count (:zoom-stack restored)))))
 
   (it "supports keyword + and - keys for zoom controls"
     (let [state {:scene {:layer-rects [{:x 0.0 :y 0.0 :width 100.0 :height 1000.0}]}
                  :zoom 1.0
                  :zoom-stack []
+                 :scroll-x 0.0
                  :scroll-y 0.0
                  :viewport-height 600
                  :viewport-width 1200
                  :dragging-scrollbar? false}
-          zoomed (sut/handle-key-pressed state {:key :+ :y 80.0})
-          restored (sut/handle-key-pressed zoomed {:key :- :y 80.0})]
+          zoomed (sut/handle-key-pressed state {:key :+ :x 20.0 :y 80.0})
+          restored (sut/handle-key-pressed zoomed {:key :- :x 20.0 :y 80.0})]
       (should= 1.1 (:zoom zoomed))
       (should= 1.0 (:zoom restored))))
 
   (it "stores zoom center on stack and restores it on - key"
-    (let [state {:scene {:layer-rects [{:x 0.0 :y 0.0 :width 100.0 :height 1200.0}]
+    (let [state {:scene {:layer-rects [{:x 0.0 :y 0.0 :width 2400.0 :height 1200.0}]
                          :module-positions []
                          :edge-drawables []}
                  :architecture nil
                  :namespace-path []
                  :zoom 1.0
                  :zoom-stack []
+                 :scroll-x 200.0
                  :scroll-y 150.0
                  :viewport-height 700
                  :viewport-width 1200
                  :dragging-scrollbar? false}
-          zoomed (sut/handle-key-pressed state {:key \+ :y 300.0})
+          zoomed (sut/handle-key-pressed state {:key \+ :x 250.0 :y 300.0})
           stack-top (peek (:zoom-stack zoomed))
-          restored (sut/handle-key-pressed zoomed {:key \- :y 300.0})]
+          restored (sut/handle-key-pressed zoomed {:key \- :x 250.0 :y 300.0})]
+      (should= true (contains? stack-top :center-world-x))
       (should= true (contains? stack-top :center-world-y))
+      (should= true (contains? stack-top :screen-x))
       (should= true (contains? stack-top :screen-y))
       (should= 1.0 (:zoom restored))
+      (should= 200.0 (:scroll-x restored))
       (should= 150.0 (:scroll-y restored))))
 
   (it "exits sketch when escape is pressed"
