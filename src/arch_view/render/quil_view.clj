@@ -104,16 +104,25 @@
         (q/triangle tx ty lx ly rx ry))
       (do
         (q/no-fill)
-        (q/triangle tx ty lx ly rx ry)))))
+        (q/line tx ty lx ly)
+        (q/line tx ty rx ry)))))
+
+(defn edge-line-endpoint
+  [x1 y1 x2 y2 arrowhead]
+  (let [{:keys [tip center closed?]} (arrowhead-points x1 y1 x2 y2 arrowhead)]
+    (if closed?
+      center
+      tip)))
 
 (defn- draw-edge
   [points {:keys [from to arrowhead]}]
   (let [{x1 :x y1 :y} (get points from)
         {x2 :x y2 :y} (get points to)]
     (when (and x1 y1 x2 y2)
+      (let [[ex ey] (edge-line-endpoint x1 y1 x2 y2 arrowhead)]
       (q/stroke 40 40 40)
-      (q/line x1 y1 x2 y2)
-      (draw-arrowhead x1 y1 x2 y2 arrowhead))))
+      (q/line x1 y1 ex ey)
+      (draw-arrowhead x1 y1 x2 y2 arrowhead)))))
 
 (defn- draw-scene
   [scene]

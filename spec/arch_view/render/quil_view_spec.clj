@@ -40,6 +40,12 @@
       (should= [-5.0 10.0] (:right up))
       (should= true (:closed? up))))
 
+  (it "ends abstract dependency line at arrowhead base"
+    (let [standard-end (sut/edge-line-endpoint 0 0 10 0 :standard)
+          abstract-end (sut/edge-line-endpoint 0 0 10 0 :closed-triangle)]
+      (should= [10 0] standard-end)
+      (should= [0.0 0.0] abstract-end)))
+
   (it "exits sketch when escape is pressed"
     (let [exited? (atom false)]
       (with-redefs [quil.core/exit (fn [] (reset! exited? true))]
