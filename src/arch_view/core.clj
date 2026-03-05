@@ -66,6 +66,7 @@
         architecture (if in-edn
                        (load-architecture-edn in-edn)
                        (load-architecture project-path))
+        source-label (or in-edn project-path)
         {:keys [graph scene]} architecture]
     (println "Architecture loaded")
     (println "Nodes:" (count (:nodes graph)))
@@ -73,6 +74,6 @@
     (when out
       (spit out (pr-str architecture)))
     (when-not no-gui
-      (-> (render/show! scene {:title (str "architecture-viewer: " (str/trim project-path))})
+      (-> (render/show! scene {:title (str "architecture-viewer: " (str/trim source-label))})
           (render/wait-until-closed!))
       (exit-program!))))

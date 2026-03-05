@@ -137,4 +137,22 @@
         (sut/-main "--in-edn" (.getAbsolutePath in-file)))
       (should= true @showed?)
       (should= true @waited?)
-      (should= true @exited?))))
+      (should= true @exited?)))
+
+  (it "uses in-edn path in viewer title"
+    (let [root (.toFile (java.nio.file.Files/createTempDirectory "arch-view-in-edn-title" (make-array java.nio.file.attribute.FileAttribute 0)))
+          in-file (java.io.File. root "input.edn")
+          title* (atom nil)
+          architecture {:graph {:nodes #{"a"} :edges #{}}
+                        :layout {:layers [{:index 0 :modules ["a"]}]
+                                 :module->layer {"a" 0}}
+                        :classified-edges #{}
+                        :module->component {"a" :x}}]
+      (spit in-file (pr-str architecture))
+      (with-redefs [render/show! (fn [_ opts]
+                                   (reset! title* (:title opts))
+                                   :fake-sketch)
+                    render/wait-until-closed! (fn [_] nil)
+                    sut/exit-program! (fn [] nil)]
+        (sut/-main "--in-edn" (.getAbsolutePath in-file)))
+      (should= true (boolean (and @title* (.contains ^String @title* "input.edn")))))))
