@@ -33,6 +33,12 @@ Headless model build (no GUI):
 clojure -M -m arch-view.core --project-path /path/to/project --no-gui
 ```
 
+Headless export to EDN:
+
+```bash
+clojure -M -m arch-view.core --project-path /path/to/project --no-gui --out /tmp/architecture.edn
+```
+
 Open Quil viewer:
 
 ```bash
