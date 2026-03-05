@@ -33,13 +33,22 @@
 
 (defn abbreviate-module-name
   [module]
-  (let [parts (str/split module #"\.")
+  (let [parts (->> (str/split module #"\.")
+                   (drop 1)
+                   vec)
         parent (butlast parts)
         last-part (last parts)]
-    (if (seq parent)
+    (if (and (seq parent) last-part)
       (str (str/join "." (map #(subs % 0 1) parent))
            "."
            last-part)
+      (or last-part module))))
+
+(defn strip-top-namespace
+  [module]
+  (let [parts (str/split module #"\.")]
+    (if (> (count parts) 1)
+      (str/join "." (rest parts))
       module)))
 
 (defn- label-width
@@ -107,7 +116,9 @@
                                (mapcat (fn [{:keys [index modules]}]
                                          (->> (module-positions-for-layer index modules canvas-width layer-height layer-gap module->kind module->full-name)
                                               (map (fn [m]
-                                                     (assoc m :label (abbreviate-module-name (:module m)))))
+                                                     (assoc m
+                                                            :label (abbreviate-module-name (:module m))
+                                                            :full-name (strip-top-namespace (:full-name m)))))
                                               apply-layer-stagger)))
                                vec)
          edge-drawables (->> (:classified-edges architecture)
@@ -228,6 +239,8 @@
                        (<= top my bottom))
               m)))
         module-positions))
+
+(declare view-architecture drilldown-scene)
 
 (defn scroll-range
   [content-height viewport-height]
@@ -378,8 +391,21 @@
       (assoc state :scroll-y next-scroll))))
 
 (defn handle-mouse-released
-  [state _]
-  (assoc state :dragging-scrollbar? false :drag-offset nil))
+  [{:keys [scene scroll-y dragging-scrollbar? namespace-path] :as state} _]
+  (if dragging-scrollbar?
+    (assoc state :dragging-scrollbar? false :drag-offset nil)
+    (let [mx (double (q/mouse-x))
+          my (double (q/mouse-y))
+          world-my (+ my scroll-y)
+          hovered (hovered-module-position (:module-positions scene) mx world-my)
+          base-state (assoc state :dragging-scrollbar? false :drag-offset nil)]
+      (if hovered
+        (let [candidate (conj (or namespace-path []) (:module hovered))
+              child-view (view-architecture (:architecture state) candidate)]
+          (if (seq (get-in child-view [:graph :nodes]))
+            (drilldown-scene base-state candidate)
+            base-state))
+        base-state))))
 
 (defn- namespace-segments
   [module]
@@ -448,22 +474,6 @@
            :namespace-path path
            :scene scene)))
 
-(defn handle-mouse-clicked
-  [{:keys [scene scroll-y dragging-scrollbar? namespace-path] :as state} _]
-  (if dragging-scrollbar?
-    state
-    (let [mx (double (q/mouse-x))
-          my (double (q/mouse-y))
-          world-my (+ my scroll-y)
-          hovered (hovered-module-position (:module-positions scene) mx world-my)]
-      (if hovered
-        (let [candidate (conj (or namespace-path []) (:module hovered))
-              child-view (view-architecture (:architecture state) candidate)]
-          (if (seq (get-in child-view [:graph :nodes]))
-            (drilldown-scene state candidate)
-            state))
-        state))))
-
 (defn show!
   ([scene]
    (show! scene {}))
@@ -499,11 +509,10 @@
        :draw draw-scene
        :key-pressed handle-key-pressed
        :mouse-wheel handle-mouse-wheel
-        :mouse-pressed handle-mouse-pressed
-        :mouse-dragged handle-mouse-dragged
-       :mouse-clicked handle-mouse-clicked
-        :mouse-released handle-mouse-released
-        :middleware [m/fun-mode]))))
+       :mouse-pressed handle-mouse-pressed
+       :mouse-dragged handle-mouse-dragged
+       :mouse-released handle-mouse-released
+       :middleware [m/fun-mode]))))
 
 (defn wait-until-closed!
   [sketch]

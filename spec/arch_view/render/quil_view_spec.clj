@@ -86,9 +86,13 @@
     (should= [100.0 100.0] (sut/dependency-start-point 100 100 200 100)))
 
   (it "abbreviates module names using parent initials"
-    (should= "a.b.module-name" (sut/abbreviate-module-name "alpha.beta.module-name"))
+    (should= "b.module-name" (sut/abbreviate-module-name "alpha.beta.module-name"))
     (should= "module-name" (sut/abbreviate-module-name "module-name"))
-    (should= "a.b.c.core" (sut/abbreviate-module-name "app.backend.cache.core")))
+    (should= "b.c.core" (sut/abbreviate-module-name "app.backend.cache.core")))
+
+  (it "strips top-level namespace for hover names"
+    (should= "beta.module" (sut/strip-top-namespace "alpha.beta.module"))
+    (should= "module" (sut/strip-top-namespace "module")))
 
   (it "finds hovered module by label hitbox"
     (let [modules [{:module "alpha.beta.core"
