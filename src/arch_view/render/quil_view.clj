@@ -744,7 +744,8 @@
          world-x-at-screen
          world-y-at-screen
          scroll-for-world-x
-         scroll-for-world-y)
+         scroll-for-world-y
+         point-in-toolbar?)
 
 (defn- drillable?
   [state hovered]
@@ -1050,6 +1051,7 @@
         content-height (scaled-content-height scene z)
         mx (double (q/mouse-x))
         my (double (q/mouse-y))
+        interactive-canvas? (not (point-in-toolbar? mx my))
         sx (double (or scroll-x 0.0))
         sy (double (or scroll-y 0.0))
         world-mx (+ (/ mx z) (/ sx z))
@@ -1064,9 +1066,12 @@
                 :min-y (+ world-top (/ 14.0 z))
                 :max-y (- world-bottom (/ 14.0 z))}
         spaced-edges (prepare-edge-drawables scene declutter-mode)
-        hovered-arrow (hovered-edge spaced-edges points bounds world-mx world-my)
-        hovered (hovered-module-position (:module-positions scene) world-mx world-my)
-        hovered-layer (hovered-layer-label (:layer-rects scene) world-mx world-my)]
+        hovered-arrow (when interactive-canvas?
+                        (hovered-edge spaced-edges points bounds world-mx world-my))
+        hovered (when interactive-canvas?
+                  (hovered-module-position (:module-positions scene) world-mx world-my))
+        hovered-layer (when interactive-canvas?
+                        (hovered-layer-label (:layer-rects scene) world-mx world-my))]
     (q/cursor (if (:drillable? hovered)
                 :cross
                 :arrow))
