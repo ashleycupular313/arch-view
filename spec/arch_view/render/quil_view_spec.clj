@@ -143,6 +143,15 @@
       (should= "b" (:to hovered))
       (should= 2 (:count hovered))))
 
+  (it "separates opposite-direction horizontal arrows"
+    (let [points {"a" {:x 100.0 :y 100.0}
+                  "b" {:x 300.0 :y 100.0}}
+          edges [{:from "a" :to "b" :type :direct :arrowhead :standard}
+                 {:from "b" :to "a" :type :direct :arrowhead :standard}]
+          spaced (sut/apply-parallel-arrow-spacing edges points)
+          ys (->> spaced (map :parallel-offset-y) sort vec)]
+      (should= [-7.5 7.5] ys)))
+
   (it "computes and clamps vertical scroll range"
     (should= 600.0 (sut/scroll-range 1200 600))
     (should= 0.0 (sut/scroll-range 300 600))
@@ -164,6 +173,19 @@
     (should= 0.0 (sut/thumb-y->scroll 12.0 2000 500))
     (should= true (> (sut/thumb-y->scroll 300.0 2000 500) 0.0))
     (should= 1500.0 (sut/thumb-y->scroll 10000.0 2000 500)))
+
+  (it "zooms in on ctrl-right click and restores prior zoom on ctrl-left click"
+    (let [state {:scene {:layer-rects [{:x 0.0 :y 0.0 :width 100.0 :height 1000.0}]}
+                 :zoom 1.0
+                 :zoom-stack []
+                 :scroll-y 120.0
+                 :viewport-height 600}
+          zoomed (sut/handle-mouse-clicked state {:button :right :modifiers [:control]})
+          restored (sut/handle-mouse-clicked zoomed {:button :left :modifiers [:control]})]
+      (should= 1.1 (:zoom zoomed))
+      (should= 1 (count (:zoom-stack zoomed)))
+      (should= 1.0 (:zoom restored))
+      (should= 0 (count (:zoom-stack restored)))))
 
   (it "exits sketch when escape is pressed"
     (let [exited? (atom false)]

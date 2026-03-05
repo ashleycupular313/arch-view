@@ -663,11 +663,17 @@
                                                  :max-lane (max max-lane lane)}))
                                             {:lanes [] :edges [] :max-lane -1}
                                             component-edges)
-                                    lane-count (inc (max 0 max-lane))]
+                                    lane-count (inc (max 0 max-lane))
+                                    [bx1 by1 bx2 by2] (base-points (first component-edges))
+                                    [base-nx base-ny] (normal-unit bx1 by1 bx2 by2)]
                                 (reduce (fn [acc2 [local-idx {:keys [lane] :as edge}]]
                                           (let [[x1 y1 x2 y2] (base-points edge)
                                                 offset (offset-for-lane lane lane-count)
-                                                [nx ny] (normal-unit x1 y1 x2 y2)]
+                                                [nx ny] (normal-unit x1 y1 x2 y2)
+                                                dot (+ (* nx base-nx) (* ny base-ny))
+                                                [nx ny] (if (neg? dot)
+                                                          [(- nx) (- ny)]
+                                                          [nx ny])]
                                             (assoc acc2
                                                    (-> component
                                                        vec
@@ -792,6 +798,11 @@
        (map (fn [{:keys [y height]}] (+ y height)))
        (apply max 0)
        (+ 40)))
+
+(defn- scaled-content-height
+  [scene zoom]
+  (* (double (or zoom 1.0))
+     (content-height-for-scene scene)))
 
 (defn- content-width-for-scene
   [scene]
@@ -1017,14 +1028,15 @@
     (q/rect x y width height)))
 
 (defn- draw-scene
-  [{:keys [scene declutter-mode scroll-y viewport-height viewport-width] :as state}]
-  (let [content-height (content-height-for-scene scene)
+  [{:keys [scene declutter-mode scroll-y viewport-height viewport-width zoom] :as state}]
+  (let [z (double (or zoom 1.0))
+        content-height (scaled-content-height scene z)
         mx (double (q/mouse-x))
         my (double (q/mouse-y))
-        world-my (+ my scroll-y)
+        world-my (+ (/ my z) (/ (double (or scroll-y 0.0)) z))
         points (module-point-map scene)
         bounds {:min-x 14.0
-                :max-x (- (double viewport-width) 20.0)
+                :max-x (- (/ (double viewport-width) z) 20.0)
                 :min-y 14.0
                 :max-y (- (content-height-for-scene scene) 14.0)}
         spaced-edges (prepare-edge-drawables scene declutter-mode)
@@ -1036,7 +1048,8 @@
                 :arrow))
     (q/background 250 250 250)
     (q/push-matrix)
-    (q/translate 0 (- scroll-y))
+    (q/scale z)
+    (q/translate 0 (- (/ (double (or scroll-y 0.0)) z)))
     (draw-scene-content scene viewport-width spaced-edges)
     (q/pop-matrix)
     (draw-toolbar state)
@@ -1053,8 +1066,8 @@
   state)
 
 (defn handle-mouse-wheel
-  [{:keys [scene scroll-y viewport-height viewport-width] :as state} event]
-  (let [content-height (content-height-for-scene scene)
+  [{:keys [scene scroll-y viewport-height viewport-width zoom] :as state} event]
+  (let [content-height (scaled-content-height scene (or zoom 1.0))
         units (cond
                 (number? event) (double event)
                 (map? event) (double (or (:count event)
@@ -1076,8 +1089,8 @@
    (double (or (:y event) (q/mouse-y)))])
 
 (defn handle-mouse-pressed
-  [{:keys [scene scroll-y viewport-height viewport-width] :as state} event]
-  (let [content-height (content-height-for-scene scene)
+  [{:keys [scene scroll-y viewport-height viewport-width zoom] :as state} event]
+  (let [content-height (scaled-content-height scene (or zoom 1.0))
         thumb (scrollbar-rect content-height viewport-height scroll-y viewport-width)
         [mx my] (mouse-pos event)]
     (if (and thumb (point-in-rect? thumb mx my))
@@ -1087,19 +1100,20 @@
       state)))
 
 (defn handle-mouse-dragged
-  [{:keys [scene viewport-height dragging-scrollbar? drag-offset] :as state} event]
+  [{:keys [scene viewport-height dragging-scrollbar? drag-offset zoom] :as state} event]
   (if-not dragging-scrollbar?
     state
-    (let [content-height (content-height-for-scene scene)
+    (let [content-height (scaled-content-height scene (or zoom 1.0))
           [_ mouse-y] (mouse-pos event)
           thumb-y (- mouse-y (double (or drag-offset 0)))
           next-scroll (thumb-y->scroll thumb-y content-height viewport-height)]
       (assoc state :scroll-y next-scroll))))
 
 (defn- apply-drilldown-click
-  [{:keys [scene scroll-y namespace-path] :as state} event]
+  [{:keys [scene scroll-y namespace-path zoom] :as state} event]
   (let [[mx my] (mouse-pos event)
-        world-my (+ my scroll-y)
+        z (double (or zoom 1.0))
+        world-my (+ (/ my z) (/ (double (or scroll-y 0.0)) z))
         hovered (hovered-module-position (:module-positions scene) mx world-my)]
     (if hovered
       (let [candidate (conj (or namespace-path []) (:module hovered))
@@ -1147,19 +1161,71 @@
       :declutter (update state :declutter-mode next-declutter-mode)
       state))))
 
+(defn- control-down?
+  [event]
+  (or (true? (:control event))
+      (contains? (set (or (:modifiers event) [])) :control)
+      (contains? (set (or (:modifiers event) [])) :ctrl)))
+
+(defn- button-kind
+  [event]
+  (let [b (:button event)]
+    (cond
+      (keyword? b) b
+      (= b 1) :left
+      (= b 3) :right
+      :else nil)))
+
+(defn- scaled-scroll-for-zoom
+  [scroll-y old-zoom new-zoom]
+  (if (<= old-zoom 0.0)
+    scroll-y
+    (* (double (or scroll-y 0.0))
+       (/ (double new-zoom) (double old-zoom)))))
+
+(defn- apply-zoom-click
+  [{:keys [zoom zoom-stack scene viewport-height] :as state} event]
+  (if-not (control-down? event)
+    nil
+    (case (button-kind event)
+      :right (let [old-z (double (or zoom 1.0))
+                   new-z (* old-z 1.1)
+                   content-height (scaled-content-height scene new-z)
+                   next-scroll (clamp-scroll (scaled-scroll-for-zoom (:scroll-y state) old-z new-z)
+                                             content-height
+                                             viewport-height)]
+               (assoc state
+                      :zoom new-z
+                      :scroll-y next-scroll
+                      :zoom-stack (conj (vec (or zoom-stack []))
+                                        {:zoom old-z
+                                         :scroll-y (double (or (:scroll-y state) 0.0))})))
+      :left (let [stack (vec (or zoom-stack []))]
+              (when (seq stack)
+                (let [{prev-z :zoom prev-scroll :scroll-y} (peek stack)
+                      content-height (scaled-content-height scene prev-z)
+                      next-scroll (clamp-scroll prev-scroll content-height viewport-height)]
+                  (assoc state
+                         :zoom prev-z
+                         :scroll-y next-scroll
+                         :zoom-stack (pop stack)))))
+      nil)))
+
 (defn handle-mouse-released
   [{:keys [dragging-scrollbar?] :as state} event]
   (if dragging-scrollbar?
     (assoc state :dragging-scrollbar? false :drag-offset nil)
     (let [base-state (assoc state :dragging-scrollbar? false :drag-offset nil)]
-      (or (apply-toolbar-click base-state event)
+      (or (apply-zoom-click base-state event)
+          (apply-toolbar-click base-state event)
           (apply-drilldown-click base-state event)))))
 
 (defn handle-mouse-clicked
   [state event]
   (if (:dragging-scrollbar? state)
     state
-    (or (apply-toolbar-click state event)
+    (or (apply-zoom-click state event)
+        (apply-toolbar-click state event)
         (apply-drilldown-click state event))))
 
 (defn- namespace-segments
@@ -1398,12 +1464,14 @@
      (q/sketch
        :title title
        :size [width viewport-height]
-       :setup (fn []
+      :setup (fn []
                 {:scene initial-scene
                  :architecture effective-architecture
                  :namespace-path (when architecture [])
                  :nav-stack []
                  :declutter-mode :all
+                 :zoom 1.0
+                 :zoom-stack []
                  :scroll-y 0.0
                  :dragging-scrollbar? false
                  :drag-offset nil
