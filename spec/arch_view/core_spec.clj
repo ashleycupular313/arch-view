@@ -23,4 +23,6 @@
                   {:index 1 :modules ["my.app.a"]}]
                  (get-in architecture [:layout :layers]))
         (should= {"my.app.a" 1 "my.app.b" 0}
-                 (get-in architecture [:layout :module->layer]))))))
+                 (get-in architecture [:layout :module->layer]))
+        (should= #{{:from "my.app.a" :to "my.app.b" :type :direct}}
+                 (:classified-edges architecture))))))

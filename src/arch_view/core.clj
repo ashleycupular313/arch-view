@@ -2,7 +2,8 @@
   (:require [clojure.java.io :as io]
             [arch-view.input.dependency-checker :as checker]
             [arch-view.input.dependency-extract :as extract]
-            [arch-view.layout.layers :as layers]))
+            [arch-view.layout.layers :as layers]
+            [arch-view.model.classify :as classify]))
 
 (defn load-architecture
   [project-path]
@@ -10,10 +11,12 @@
         guidance (checker/read-guidance guidance-path)
         source-paths (or (:source-paths guidance) ["src"])
         graph (extract/build-module-graph project-path source-paths)
-        layout (layers/assign-layers graph)]
+        layout (layers/assign-layers graph)
+        classified-edges (classify/classify-edges guidance graph)]
     {:guidance guidance
      :graph graph
-     :layout layout}))
+     :layout layout
+     :classified-edges classified-edges}))
 
 (defn -main [& [project-path]]
   (let [project-path (or project-path ".")
