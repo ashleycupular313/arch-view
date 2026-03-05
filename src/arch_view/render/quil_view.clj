@@ -1,4 +1,6 @@
-(ns arch-view.render.quil-view)
+(ns arch-view.render.quil-view
+  (:require [quil.core :as q]
+            [quil.middleware :as m]))
 
 (defn- layer-y
   [index layer-height layer-gap]
@@ -48,3 +50,66 @@
      {:layer-rects layer-rects
       :module-positions module-positions
       :edge-drawables edge-drawables})))
+
+(defn- module-point-map
+  [scene]
+  (into {}
+        (map (fn [{:keys [module x y]}]
+               [module {:x x :y y}])
+             (:module-positions scene))))
+
+(defn- draw-arrowhead
+  [x y arrowhead]
+  (case arrowhead
+    :closed-triangle (do
+                       (q/fill 0)
+                       (q/triangle x y (- x 12) (- y 6) (- x 12) (+ y 6)))
+    (do
+      (q/no-fill)
+      (q/triangle x y (- x 10) (- y 5) (- x 10) (+ y 5)))))
+
+(defn- draw-edge
+  [points {:keys [from to arrowhead]}]
+  (let [{x1 :x y1 :y} (get points from)
+        {x2 :x y2 :y} (get points to)]
+    (when (and x1 y1 x2 y2)
+      (q/stroke 40 40 40)
+      (q/line x1 y1 x2 y2)
+      (draw-arrowhead x2 y2 arrowhead))))
+
+(defn- draw-scene
+  [scene]
+  (q/background 250 250 250)
+  (doseq [{:keys [x y width height]} (:layer-rects scene)]
+    (q/fill 225 233 242)
+    (q/stroke 120 140 160)
+    (q/rect x y width height))
+  (doseq [{:keys [x y module]} (:module-positions scene)]
+    (q/fill 15 20 30)
+    (q/no-stroke)
+    (q/text-align :center :center)
+    (q/text module x y))
+  (let [points (module-point-map scene)]
+    (doseq [edge (:edge-drawables scene)]
+      (draw-edge points edge))))
+
+(defn show!
+  ([scene]
+   (show! scene {}))
+  ([scene {:keys [title]
+           :or {title "architecture-viewer"}}]
+   (let [height (if (seq (:layer-rects scene))
+                  (->> (:layer-rects scene)
+                       (map (fn [{:keys [y height]}] (+ y height)))
+                       (apply max)
+                       (+ 40))
+                  400)
+         width (if (seq (:layer-rects scene))
+                 (:width (first (:layer-rects scene)))
+                 1200)]
+     (q/sketch
+       :title title
+       :size [width height]
+       :setup (fn [] scene)
+       :draw draw-scene
+       :middleware [m/fun-mode]))))

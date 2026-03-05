@@ -1,5 +1,6 @@
 (ns arch-view.core
   (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [arch-view.input.dependency-checker :as checker]
             [arch-view.input.dependency-extract :as extract]
             [arch-view.layout.layers :as layers]
@@ -22,9 +23,25 @@
      :classified-edges classified-edges
      :scene scene}))
 
-(defn -main [& [project-path]]
-  (let [project-path (or project-path ".")
-        {:keys [graph]} (load-architecture project-path)]
+(defn parse-args
+  [args]
+  (loop [remaining args
+         opts {:project-path "." :no-gui false}]
+    (if (empty? remaining)
+      opts
+      (let [arg (first remaining)]
+        (cond
+          (= "--project-path" arg) (recur (nnext remaining)
+                                          (assoc opts :project-path (second remaining)))
+          (= "--no-gui" arg) (recur (next remaining)
+                                    (assoc opts :no-gui true))
+          :else (recur (next remaining) opts))))))
+
+(defn -main [& args]
+  (let [{:keys [project-path no-gui]} (parse-args args)
+        {:keys [graph scene]} (load-architecture project-path)]
     (println "Architecture loaded")
     (println "Nodes:" (count (:nodes graph)))
-    (println "Edges:" (count (:edges graph)))))
+    (println "Edges:" (count (:edges graph)))
+    (when-not no-gui
+      (render/show! scene {:title (str "architecture-viewer: " (str/trim project-path))}))))
