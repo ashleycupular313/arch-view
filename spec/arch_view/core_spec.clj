@@ -63,7 +63,8 @@
           a-file (java.io.File. src-dir "my/app/a.clj")
           b-file (java.io.File. src-dir "my/app/b.clj")
           showed? (atom false)
-          waited? (atom false)]
+          waited? (atom false)
+          exited? (atom false)]
       (.mkdirs (.getParentFile a-file))
       (spit dep-file "{:source-paths [\"src\"] :component-rules [{:component :all :kind :concrete :match \"my.app.*\"}]}")
       (spit a-file "(ns my.app.a (:require [my.app.b :as b]))")
@@ -71,10 +72,12 @@
       (with-redefs [render/show! (fn [& _] (reset! showed? true) :fake-sketch)
                     render/wait-until-closed! (fn [sketch]
                                                 (when (= :fake-sketch sketch)
-                                                  (reset! waited? true)))]
+                                                  (reset! waited? true)))
+                    sut/exit-program! (fn [] (reset! exited? true))]
         (sut/-main "--project-path" (.getAbsolutePath root)))
       (should= true @showed?)
-      (should= true @waited?)))
+      (should= true @waited?)
+      (should= true @exited?)))
 
   (it "falls back to default guidance when dependency-checker.edn is missing"
     (let [root (.toFile (java.nio.file.Files/createTempDirectory "arch-view-no-guide" (make-array java.nio.file.attribute.FileAttribute 0)))

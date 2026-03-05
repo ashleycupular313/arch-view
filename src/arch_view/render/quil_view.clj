@@ -80,27 +80,44 @@
         len (max 0.001 (Math/sqrt (+ (* dx dx) (* dy dy))))
         ux (/ dx len)
         uy (/ dy len)
-        back (if (= :closed-triangle arrowhead) 12.0 10.0)
-        half (if (= :closed-triangle arrowhead) 5.0 5.0)
+        back 20.0
+        half-abstract 10.0
+        cos30 (Math/cos (/ Math/PI 6.0))
+        sin30 (Math/sin (/ Math/PI 6.0))
         bx (- x2 (* ux back))
         by (- y2 (* uy back))
         px (- uy)
-        py ux]
+        py ux
+        left-concrete-x (+ x2 (* back (- (* -1 ux cos30) (* px sin30))))
+        left-concrete-y (+ y2 (* back (- (* -1 uy cos30) (* py sin30))))
+        right-concrete-x (+ x2 (* back (+ (* -1 ux cos30) (* px sin30))))
+        right-concrete-y (+ y2 (* back (+ (* -1 uy cos30) (* py sin30))))]
     {:tip [x2 y2]
-     :left [(+ bx (* px half)) (+ by (* py half))]
-     :right [(- bx (* px half)) (- by (* py half))]
+     :center [bx by]
+     :left (if (= :closed-triangle arrowhead)
+             [(+ bx (* px half-abstract)) (+ by (* py half-abstract))]
+             [left-concrete-x left-concrete-y])
+     :right (if (= :closed-triangle arrowhead)
+              [(- bx (* px half-abstract)) (- by (* py half-abstract))]
+              [right-concrete-x right-concrete-y])
      :closed? (= :closed-triangle arrowhead)}))
 
 (defn- draw-arrowhead
   [x1 y1 x2 y2 arrowhead]
-  (let [{:keys [tip left right closed?]} (arrowhead-points x1 y1 x2 y2 arrowhead)
+  (let [{:keys [tip center left right closed?]} (arrowhead-points x1 y1 x2 y2 arrowhead)
         [tx ty] tip
+        [cx cy] center
         [lx ly] left
         [rx ry] right]
     (if closed?
-      (q/fill 0)
-      (q/no-fill))
-    (q/triangle tx ty lx ly rx ry)))
+      (do
+        (q/fill 0)
+        (q/triangle tx ty lx ly rx ry))
+      (do
+        (q/no-fill)
+        (q/line tx ty cx cy)
+        (q/line tx ty lx ly)
+        (q/line tx ty rx ry)))))
 
 (defn- draw-edge
   [points {:keys [from to arrowhead]}]

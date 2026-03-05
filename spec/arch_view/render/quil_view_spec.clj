@@ -31,11 +31,13 @@
     (let [right (sut/arrowhead-points 0 0 10 0 :standard)
           up (sut/arrowhead-points 0 10 0 0 :closed-triangle)]
       (should= [10 0] (:tip right))
-      (should= [0.0 5.0] (:left right))
-      (should= [0.0 -5.0] (:right right))
+      (should= [-10.0 0.0] (:center right))
+      (should= [-7.320508075688775 -9.999999999999998] (:left right))
+      (should= [-7.320508075688775 9.999999999999998] (:right right))
       (should= [0 0] (:tip up))
-      (should= [5.0 12.0] (:left up))
-      (should= [-5.0 12.0] (:right up))
+      (should= [0.0 20.0] (:center up))
+      (should= [10.0 20.0] (:left up))
+      (should= [-10.0 20.0] (:right up))
       (should= true (:closed? up))))
 
   (it "exits sketch when escape is pressed"

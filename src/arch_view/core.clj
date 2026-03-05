@@ -45,6 +45,11 @@
                                     (assoc opts :no-gui true))
           :else (recur (next remaining) opts))))))
 
+(defn exit-program!
+  []
+  (shutdown-agents)
+  (System/exit 0))
+
 (defn -main [& args]
   (let [{:keys [project-path no-gui out]} (parse-args args)
         architecture (load-architecture project-path)
@@ -56,4 +61,5 @@
       (spit out (pr-str architecture)))
     (when-not no-gui
       (-> (render/show! scene {:title (str "architecture-viewer: " (str/trim project-path))})
-          (render/wait-until-closed!)))))
+          (render/wait-until-closed!))
+      (exit-program!))))
