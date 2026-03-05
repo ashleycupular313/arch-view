@@ -23,26 +23,28 @@
     :standard))
 
 (defn build-scene
-  [architecture {:keys [canvas-width layer-height layer-gap]
-                 :or {canvas-width 1200 layer-height 140 layer-gap 24}}]
-  (let [layers (get-in architecture [:layout :layers])
-        layer-rects (mapv (fn [{:keys [index]}]
-                            {:index index
-                             :x 0
-                             :y (layer-y index layer-height layer-gap)
-                             :width canvas-width
-                             :height layer-height})
-                          layers)
-        module-positions (->> layers
-                              (mapcat (fn [{:keys [index modules]}]
-                                        (module-positions-for-layer index modules canvas-width layer-height layer-gap)))
-                              vec)
-        edge-drawables (->> (:classified-edges architecture)
-                            (map (fn [{:keys [from to type]}]
-                                   {:from from
-                                    :to to
-                                    :arrowhead (arrowhead-for type)}))
-                            vec)]
-    {:layer-rects layer-rects
-     :module-positions module-positions
-     :edge-drawables edge-drawables}))
+  ([architecture]
+   (build-scene architecture {}))
+  ([architecture {:keys [canvas-width layer-height layer-gap]
+                  :or {canvas-width 1200 layer-height 140 layer-gap 24}}]
+   (let [layers (get-in architecture [:layout :layers])
+         layer-rects (mapv (fn [{:keys [index]}]
+                             {:index index
+                              :x 0
+                              :y (layer-y index layer-height layer-gap)
+                              :width canvas-width
+                              :height layer-height})
+                           layers)
+         module-positions (->> layers
+                               (mapcat (fn [{:keys [index modules]}]
+                                         (module-positions-for-layer index modules canvas-width layer-height layer-gap)))
+                               vec)
+         edge-drawables (->> (:classified-edges architecture)
+                             (map (fn [{:keys [from to type]}]
+                                    {:from from
+                                     :to to
+                                     :arrowhead (arrowhead-for type)}))
+                             vec)]
+     {:layer-rects layer-rects
+      :module-positions module-positions
+      :edge-drawables edge-drawables})))

@@ -25,4 +25,7 @@
         (should= {"my.app.a" 1 "my.app.b" 0}
                  (get-in architecture [:layout :module->layer]))
         (should= #{{:from "my.app.a" :to "my.app.b" :type :direct}}
-                 (:classified-edges architecture))))))
+                 (:classified-edges architecture))
+        (should= 2 (count (get-in architecture [:scene :layer-rects])))
+        (should= 2 (count (get-in architecture [:scene :module-positions])))
+        (should= 1 (count (get-in architecture [:scene :edge-drawables])))))))
