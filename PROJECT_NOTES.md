@@ -43,6 +43,7 @@
 - Check test coverage before commit.
 - Commit only when tests pass.
 - Never push to git without explicit approval.
+- Do not run `:mutate` or `:crap` automatically; run them only when explicitly requested by the user.
 
 ### Test Commands
 - Run Speclj structure check first: `clojure -M:check spec/`
