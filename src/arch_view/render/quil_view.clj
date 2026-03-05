@@ -73,15 +73,34 @@
                [module {:x x :y y}])
              (:module-positions scene))))
 
+(defn arrowhead-points
+  [x1 y1 x2 y2 arrowhead]
+  (let [dx (- x2 x1)
+        dy (- y2 y1)
+        len (max 0.001 (Math/sqrt (+ (* dx dx) (* dy dy))))
+        ux (/ dx len)
+        uy (/ dy len)
+        back (if (= :closed-triangle arrowhead) 12.0 10.0)
+        half (if (= :closed-triangle arrowhead) 5.0 5.0)
+        bx (- x2 (* ux back))
+        by (- y2 (* uy back))
+        px (- uy)
+        py ux]
+    {:tip [x2 y2]
+     :left [(+ bx (* px half)) (+ by (* py half))]
+     :right [(- bx (* px half)) (- by (* py half))]
+     :closed? (= :closed-triangle arrowhead)}))
+
 (defn- draw-arrowhead
-  [x y arrowhead]
-  (case arrowhead
-    :closed-triangle (do
-                       (q/fill 0)
-                       (q/triangle x y (- x 12) (- y 6) (- x 12) (+ y 6)))
-    (do
-      (q/no-fill)
-      (q/triangle x y (- x 10) (- y 5) (- x 10) (+ y 5)))))
+  [x1 y1 x2 y2 arrowhead]
+  (let [{:keys [tip left right closed?]} (arrowhead-points x1 y1 x2 y2 arrowhead)
+        [tx ty] tip
+        [lx ly] left
+        [rx ry] right]
+    (if closed?
+      (q/fill 0)
+      (q/no-fill))
+    (q/triangle tx ty lx ly rx ry)))
 
 (defn- draw-edge
   [points {:keys [from to arrowhead]}]
@@ -90,7 +109,7 @@
     (when (and x1 y1 x2 y2)
       (q/stroke 40 40 40)
       (q/line x1 y1 x2 y2)
-      (draw-arrowhead x2 y2 arrowhead))))
+      (draw-arrowhead x1 y1 x2 y2 arrowhead))))
 
 (defn- draw-scene
   [scene]

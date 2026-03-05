@@ -25,4 +25,15 @@
       (should= #{{:from "a" :to "b" :arrowhead :standard}
                  {:from "c" :to "d" :arrowhead :closed-triangle}}
                (set (map #(select-keys % [:from :to :arrowhead])
-                         (:edge-drawables scene)))))))
+                         (:edge-drawables scene))))))
+
+  (it "computes arrowhead points in dependency direction"
+    (let [right (sut/arrowhead-points 0 0 10 0 :standard)
+          up (sut/arrowhead-points 0 10 0 0 :closed-triangle)]
+      (should= [10 0] (:tip right))
+      (should= [0.0 5.0] (:left right))
+      (should= [0.0 -5.0] (:right right))
+      (should= [0 0] (:tip up))
+      (should= [5.0 12.0] (:left up))
+      (should= [-5.0 12.0] (:right up))
+      (should= true (:closed? up)))))
