@@ -213,6 +213,22 @@
       (should= "+ alpha" (get labels "alpha"))
       (should= "+ beta" (get labels "beta"))))
 
+  (it "uses namespace hierarchy order for layers in grouped views"
+    (let [architecture {:graph {:nodes #{"empire.ui"
+                                         "empire.acceptance"
+                                         "empire.application"}
+                                :edges #{{:from "empire.ui" :to "empire.acceptance"}}
+                                :abstract-modules #{}}
+                        :classified-edges #{{:from "empire.ui" :to "empire.acceptance" :type :direct}}}
+          root-view (sut/view-architecture architecture [])
+          scene (sut/build-scene root-view)]
+      (should= ["acceptance" "application" "ui"]
+               (mapv :label (:layer-rects scene)))
+      (should= [0 1 2]
+               (->> (:module-positions scene)
+                    (sort-by :module)
+                    (mapv :layer)))))
+
   (it "cycles declutter modes across all four states"
     (should= :concrete (sut/next-declutter-mode :all))
     (should= :abstract (sut/next-declutter-mode :concrete))

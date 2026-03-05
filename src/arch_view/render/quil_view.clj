@@ -136,6 +136,7 @@
                   :or {canvas-width 1200 layer-height 140 layer-gap 24}}]
   (let [layers (get-in architecture [:layout :layers])
          module->component (or (:module->component architecture) {})
+         layer->label (or (:layer->label architecture) {})
          module->kind (or (:module->kind architecture) {})
          module->leaf? (or (:module->leaf? architecture) {})
          module->source-file (or (:module->source-file architecture) {})
@@ -149,9 +150,10 @@
                                 :y (layer-y index layer-height layer-gap)
                                 :width canvas-width
                                 :height layer-height
-                                :label (if component
+                                :label (or (get layer->label index)
+                                           (if component
                                          (name component)
-                                         (str "layer-" index))}))
+                                         (str "layer-" index)))}))
                            layers)
          module-positions (->> layers
                                (mapcat (fn [{:keys [index modules]}]
@@ -758,6 +760,22 @@
   (and (<= (count prefix) (count parts))
        (= prefix (subvec parts 0 (count prefix)))))
 
+(defn- namespace-layout
+  [nodes]
+  (let [ordered (vec (sort nodes))
+        layers (mapv (fn [idx module]
+                       {:index idx
+                        :modules [module]})
+                     (range)
+                     ordered)
+        module->layer (into {}
+                            (map (fn [idx module]
+                                   [module idx])
+                                 (range)
+                                 ordered))]
+    {:layers layers
+     :module->layer module->layer}))
+
 (defn view-architecture
   [architecture namespace-path]
   (let [all-modules (or (get-in architecture [:graph :nodes]) #{})
@@ -830,10 +848,14 @@
                :edges (set (for [{:keys [from to]} classified-edges]
                              {:from from :to to}))
                :abstract-modules (set (for [[n k] module->kind :when (= k :abstract)] n))}
-        layout (layers/assign-layers graph)]
+        layout (namespace-layout nodes)
+        layer->label (into {}
+                           (for [[module idx] (:module->layer layout)]
+                             [idx (or (get module->display-label module) module)]))]
     {:namespace-path namespace-path
      :graph graph
      :layout layout
+     :layer->label layer->label
      :classified-edges classified-edges
      :module->kind module->kind
      :module->leaf? module->leaf?
