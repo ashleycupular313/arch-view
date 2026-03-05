@@ -187,6 +187,17 @@
       (should= 1.0 (:zoom restored))
       (should= 0 (count (:zoom-stack restored)))))
 
+  (it "accepts numeric modifier masks for ctrl zoom clicks"
+    (let [state {:scene {:layer-rects [{:x 0.0 :y 0.0 :width 100.0 :height 1000.0}]}
+                 :zoom 1.0
+                 :zoom-stack []
+                 :scroll-y 0.0
+                 :viewport-height 600}
+          ctrl-mask 128
+          zoomed (sut/handle-mouse-clicked state {:button 3
+                                                  :modifiers ctrl-mask})]
+      (should= 1.1 (:zoom zoomed))))
+
   (it "exits sketch when escape is pressed"
     (let [exited? (atom false)]
       (with-redefs [quil.core/exit (fn [] (reset! exited? true))]

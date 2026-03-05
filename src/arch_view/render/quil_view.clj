@@ -1163,16 +1163,30 @@
 
 (defn- control-down?
   [event]
-  (or (true? (:control event))
-      (contains? (set (or (:modifiers event) [])) :control)
-      (contains? (set (or (:modifiers event) [])) :ctrl)))
+  (let [mods (:modifiers event)
+        ctrl-mask 128
+        legacy-ctrl-mask 2
+        mod-set (cond
+                  (set? mods) mods
+                  (sequential? mods) (set mods)
+                  :else #{})]
+    (or (true? (:control event))
+        (true? (:ctrl event))
+        (true? (:control-key? event))
+        (contains? mod-set :control)
+        (contains? mod-set :ctrl)
+        (contains? mod-set :control-down)
+        (and (number? mods)
+             (or (pos? (bit-and (int mods) ctrl-mask))
+                 (pos? (bit-and (int mods) legacy-ctrl-mask)))))))
 
 (defn- button-kind
   [event]
-  (let [b (:button event)]
+  (let [b (or (:button event) (:mouse-button event) (:which event))]
     (cond
       (keyword? b) b
       (= b 1) :left
+      (= b 2) :center
       (= b 3) :right
       :else nil)))
 
