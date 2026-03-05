@@ -522,17 +522,21 @@
            :namespace-path path
            :scene scene)))
 
+(defn initial-scene-for-show
+  [scene architecture]
+  (if architecture
+    (let [initial-view (view-architecture architecture [])]
+      (-> (build-scene initial-view)
+          (attach-drillable-markers architecture [])))
+    scene))
+
 (defn show!
   ([scene]
    (show! scene {}))
   ([scene {:keys [title architecture]
            :or {title "architecture-viewer"}}]
    (let [effective-architecture (or architecture {:scene scene})
-         initial-view (if architecture
-                        (view-architecture effective-architecture [])
-                        {:scene scene})
-         initial-scene (-> (or (:scene initial-view) scene)
-                           (attach-drillable-markers effective-architecture (when architecture [])))
+         initial-scene (initial-scene-for-show scene architecture)
          content-height (if (seq (:layer-rects initial-scene))
                           (->> (:layer-rects initial-scene)
                                (map (fn [{:keys [y height]}] (+ y height)))

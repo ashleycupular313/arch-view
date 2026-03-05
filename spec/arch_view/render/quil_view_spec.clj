@@ -192,4 +192,22 @@
           marked (sut/attach-drillable-markers root-scene architecture [])
           labels (into {} (map (juxt :module :display-label) (:module-positions marked)))]
       (should= "+ alpha" (get labels "alpha"))
-      (should= "beta" (get labels "beta")))))
+      (should= "beta" (get labels "beta"))))
+
+  (it "builds grouped initial scene for show when architecture is provided"
+    (let [architecture {:graph {:nodes #{"empire.alpha.one"
+                                         "empire.alpha.two"
+                                         "empire.beta.one"}
+                                :edges #{}
+                                :abstract-modules #{}}
+                        :classified-edges #{}}
+          module-scene {:layer-rects [{:index 0 :x 0 :y 0 :width 1000 :height 100 :label "modules"}]
+                        :module-positions [{:module "empire.alpha.one" :x 200 :y 50 :label "alpha.one"}
+                                           {:module "empire.beta.one" :x 600 :y 50 :label "beta.one"}]
+                        :edge-drawables []}
+          initial (sut/initial-scene-for-show module-scene architecture)
+          modules (->> (:module-positions initial) (map :module) set)
+          labels (into {} (map (juxt :module :display-label) (:module-positions initial)))]
+      (should= #{"alpha" "beta"} modules)
+      (should= "+ alpha" (get labels "alpha"))
+      (should= "+ beta" (get labels "beta")))))
