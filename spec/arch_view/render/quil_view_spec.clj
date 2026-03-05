@@ -262,6 +262,28 @@
       (should= [200.0 240] (:from-point edge))
       (should= [200.0 220] (:to-point edge))))
 
+  (it "separates overlapping layer arrows by 15px"
+    (let [scene {:module-positions [{:module "a" :layer 0 :x 100 :y 60}
+                                    {:module "b" :layer 2 :x 120 :y 300}
+                                    {:module "c" :layer 1 :x 140 :y 180}
+                                    {:module "d" :layer 3 :x 160 :y 420}]
+                 :layer-rects [{:index 0 :x 0 :y 0 :width 400 :height 100}
+                               {:index 1 :x 0 :y 120 :width 400 :height 100}
+                               {:index 2 :x 0 :y 240 :width 400 :height 100}
+                               {:index 3 :x 0 :y 360 :width 400 :height 100}]
+                 :edge-drawables [{:from "a" :to "b" :type :direct :arrowhead :standard}
+                                  {:from "c" :to "d" :type :direct :arrowhead :standard}]}
+          edges (sort-by :from (sut/layer-edge-drawables scene))
+          [e1 e2] edges
+          [x1 _] (:from-point e1)
+          [x2 _] (:from-point e2)
+          [tx1 _] (:to-point e1)
+          [tx2 _] (:to-point e2)]
+      (should= 2 (count edges))
+      (should= 15.0 (Math/abs (- x1 x2)))
+      (should= x1 tx1)
+      (should= x2 tx2)))
+
   (it "cycles declutter mode when declutter button is clicked"
     (let [state {:scene {:module-positions [] :layer-rects [] :edge-drawables []}
                  :architecture nil

@@ -287,24 +287,63 @@
                                                  :direct)))
                                      acc)))
                                {}
-                               (:edge-drawables scene))]
-    (->> edges-by-layer
-         (map (fn [[[from-layer to-layer] type]]
-                (let [{fx :x fy :y fw :width fh :height} (get layer-rects from-layer)
-                      {tx :x ty :y tw :width th :height} (get layer-rects to-layer)
-                      from-x (+ fx (/ fw 2.0))
-                      to-x (+ tx (/ tw 2.0))
-                      down? (> to-layer from-layer)
-                      from-y (if down? (+ fy fh) fy)
-                      to-y (if down? ty (+ ty th))]
-                  {:from from-layer
-                   :to to-layer
-                   :from-point [from-x from-y]
-                   :to-point [to-x to-y]
-                   :preserve-endpoints? true
-                   :type type
-                   :arrowhead (arrowhead-for type)})))
-         vec)))
+                               (:edge-drawables scene))
+        base-edges (->> edges-by-layer
+                        (map (fn [[[from-layer to-layer] type]]
+                               (let [{fx :x fy :y fw :width fh :height} (get layer-rects from-layer)
+                                     {tx :x ty :y tw :width th :height} (get layer-rects to-layer)
+                                     from-x (+ fx (/ fw 2.0))
+                                     to-x (+ tx (/ tw 2.0))
+                                     down? (> to-layer from-layer)
+                                     from-y (if down? (+ fy fh) fy)
+                                     to-y (if down? ty (+ ty th))]
+                                 {:from from-layer
+                                  :to to-layer
+                                  :from-point [from-x from-y]
+                                  :to-point [to-x to-y]
+                                  :preserve-endpoints? true
+                                  :type type
+                                  :arrowhead (arrowhead-for type)})))
+                        (sort-by (juxt :from :to))
+                        vec)]
+    (letfn [(span [{:keys [from-point to-point]}]
+              (let [[_ y1] from-point
+                    [_ y2] to-point]
+                [(min y1 y2) (max y1 y2)]))
+            (overlap? [[a0 a1] [b0 b1]]
+              (< (max a0 b0) (min a1 b1)))
+            (assign-lane [lanes edge]
+              (let [[start end] (span edge)
+                    lane-idx (or (first (keep-indexed (fn [idx lane-end]
+                                                        (when (<= lane-end start) idx))
+                                                      lanes))
+                                 (count lanes))]
+                (if (< lane-idx (count lanes))
+                  {:lane-idx lane-idx
+                   :lanes (assoc lanes lane-idx end)}
+                  {:lane-idx lane-idx
+                   :lanes (conj lanes end)})))
+            (offset-for-lane [lane lane-count]
+              (* 15.0 (- lane (/ (dec lane-count) 2.0))))]
+      (let [{:keys [edges max-lane]}
+            (reduce (fn [{:keys [lanes edges max-lane]} edge]
+                      (let [{:keys [lane-idx lanes]} (assign-lane lanes edge)
+                            [x1 y1] (:from-point edge)
+                            [x2 y2] (:to-point edge)]
+                        {:lanes lanes
+                         :edges (conj edges (assoc edge :lane lane-idx))
+                         :max-lane (max max-lane lane-idx)}))
+                    {:lanes [] :edges [] :max-lane -1}
+                    base-edges)
+            lane-count (inc (max 0 max-lane))]
+        (mapv (fn [{:keys [lane from-point to-point] :as edge}]
+                (let [offset (offset-for-lane lane lane-count)
+                      [x1 y1] from-point
+                      [x2 y2] to-point]
+                  (assoc edge
+                         :from-point [(+ x1 offset) y1]
+                         :to-point [(+ x2 offset) y2])))
+              edges)))))
 
 (defn declutter-edge-drawables
   [scene mode]
