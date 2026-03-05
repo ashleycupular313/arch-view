@@ -258,9 +258,10 @@
                                               apply-layer-stagger)))
                                vec)
          edge-drawables (->> (:classified-edges architecture)
-                             (map (fn [{:keys [from to type]}]
+                             (map (fn [{:keys [from to type count]}]
                                     {:from from
                                      :to to
+                                     :count (long (or count 1))
                                      :arrowhead (arrowhead-for type)
                                      :type type}))
                              vec)]
@@ -369,34 +370,44 @@
   (let [[cx cy] (rect-center rect)
         dx (- tx cx)
         dy (- ty cy)
+        corner-inset 8.0
+        x-lo (+ x corner-inset)
+        x-hi (- (+ x width) corner-inset)
+        y-lo (+ y corner-inset)
+        y-hi (- (+ y height) corner-inset)
         right (+ x width)
         bottom (+ y height)]
     (if (>= (Math/abs dx) (Math/abs dy))
       (if (>= dx 0.0)
-        {:point [right (clamp-between ty y bottom)]
+        {:point [right (clamp-between ty y-lo y-hi)]
          :side :right}
-        {:point [x (clamp-between ty y bottom)]
+        {:point [x (clamp-between ty y-lo y-hi)]
          :side :left})
       (if (>= dy 0.0)
-        {:point [(clamp-between tx x right) bottom]
+        {:point [(clamp-between tx x-lo x-hi) bottom]
          :side :bottom}
-        {:point [(clamp-between tx x right) y]
+        {:point [(clamp-between tx x-lo x-hi) y]
          :side :top}))))
 
 (defn- apply-edge-constrained-offset
   [[x y] side rect offset-x offset-y]
   (let [{rx :x ry :y rw :width rh :height} rect
+        corner-inset 8.0
+        rx-lo (+ rx corner-inset)
+        rx-hi (- (+ rx rw) corner-inset)
+        ry-lo (+ ry corner-inset)
+        ry-hi (- (+ ry rh) corner-inset)
         right (+ rx rw)
         bottom (+ ry rh)]
     (case side
-      :left [rx (clamp-between (+ y offset-y) ry bottom)]
-      :right [right (clamp-between (+ y offset-y) ry bottom)]
-      :top [(clamp-between (+ x offset-x) rx right) ry]
-      :bottom [(clamp-between (+ x offset-x) rx right) bottom]
+      :left [rx (clamp-between (+ y offset-y) ry-lo ry-hi)]
+      :right [right (clamp-between (+ y offset-y) ry-lo ry-hi)]
+      :top [(clamp-between (+ x offset-x) rx-lo rx-hi) ry]
+      :bottom [(clamp-between (+ x offset-x) rx-lo rx-hi) bottom]
       [(+ x offset-x) (+ y offset-y)])))
 
-(defn- draw-edge
-  [points bounds {:keys [from to from-point to-point from-rect to-rect arrowhead preserve-endpoints? parallel-offset-x parallel-offset-y]}]
+(defn- resolved-edge-segment
+  [points bounds {:keys [from to from-point to-point from-rect to-rect parallel-offset-x parallel-offset-y]}]
   (let [raw-offset-x (double (or parallel-offset-x 0.0))
         raw-offset-y (double (or parallel-offset-y 0.0))
         [base-x1 base-y1] (or from-point (let [{x :x y :y} (get points from)] [x y]))
@@ -415,14 +426,19 @@
                   [(+ (double x2) offset-x) (+ (double y2) offset-y)])
         anchored? (or from-rect to-rect)]
     (when (and x1 y1 x2 y2)
-      (if preserve-endpoints?
-        (let [[ex ey] (edge-line-endpoint x1 y1 x2 y2 arrowhead)]
-          (if (= :closed-triangle arrowhead)
-            (q/stroke 0 128 0)
-            (q/stroke 0 0 0))
-          (q/line x1 y1 ex ey)
-          (draw-arrowhead x1 y1 x2 y2 arrowhead))
-        (draw-arrow-between-points x1 y1 x2 y2 arrowhead (not anchored?))))))
+      {:x1 x1 :y1 y1 :x2 x2 :y2 y2 :anchored? anchored?})))
+
+(defn- draw-edge
+  [points bounds {:keys [arrowhead preserve-endpoints?] :as edge}]
+  (when-let [{:keys [x1 y1 x2 y2 anchored?]} (resolved-edge-segment points bounds edge)]
+    (if preserve-endpoints?
+      (let [[ex ey] (edge-line-endpoint x1 y1 x2 y2 arrowhead)]
+        (if (= :closed-triangle arrowhead)
+          (q/stroke 0 128 0)
+          (q/stroke 0 0 0))
+        (q/line x1 y1 ex ey)
+        (draw-arrowhead x1 y1 x2 y2 arrowhead))
+      (draw-arrow-between-points x1 y1 x2 y2 arrowhead (not anchored?)))))
 
 (defn layer-edge-drawables
   [scene]
@@ -729,7 +745,7 @@
       (clamp-scroll (* normalized max-scroll) content-height viewport-height))))
 
 (defn- draw-scene-content
-  [scene declutter-mode viewport-width viewport-height]
+  [scene viewport-width spaced-edges]
   (q/background 250 250 250)
   (doseq [{:keys [x y width height label abstract?]} (:layer-rects scene)]
     (if abstract?
@@ -748,6 +764,16 @@
     (q/text-align :center :center)
     (q/text (rendered-label module-position) x y))
   (let [points (module-point-map scene)
+        bounds {:min-x 14.0
+                :max-x (- (double viewport-width) 20.0)
+                :min-y 14.0
+                :max-y (- (content-height-for-scene scene) 14.0)}]
+    (doseq [edge spaced-edges]
+      (draw-edge points bounds edge))))
+
+(defn- prepare-edge-drawables
+  [scene declutter-mode]
+  (let [points (module-point-map scene)
         layer-rect-by-index (into {} (map (juxt :index identity) (:layer-rects scene)))
         module->layer (into {} (map (juxt :module :layer) (:module-positions scene)))
         edge-drawables (->> (declutter-edge-drawables scene declutter-mode)
@@ -760,14 +786,8 @@
                                                      (get module->layer to))]
                                       (assoc edge
                                              :from-rect (get layer-rect-by-index from-layer)
-                                             :to-rect (get layer-rect-by-index to-layer))))))
-        spaced-edges (apply-parallel-arrow-spacing edge-drawables points)
-        bounds {:min-x 14.0
-                :max-x (- (double viewport-width) 20.0)
-                :min-y 14.0
-                :max-y (- (content-height-for-scene scene) 14.0)}]
-    (doseq [edge spaced-edges]
-      (draw-edge points bounds edge))))
+                                             :to-rect (get layer-rect-by-index to-layer))))))]
+    (apply-parallel-arrow-spacing edge-drawables points)))
 
 (defn- draw-toolbar
   [{:keys [namespace-path declutter-mode]}]
@@ -801,6 +821,40 @@
   (q/no-stroke)
   (q/text-align :left :center)
   (q/text full-name (+ mx 18) (+ my 22)))
+
+(defn- point->segment-distance
+  [px py x1 y1 x2 y2]
+  (let [dx (- x2 x1)
+        dy (- y2 y1)
+        len2 (+ (* dx dx) (* dy dy))]
+    (if (< len2 0.001)
+      (Math/sqrt (+ (* (- px x1) (- px x1))
+                    (* (- py y1) (- py y1))))
+      (let [t (-> (/ (+ (* (- px x1) dx)
+                        (* (- py y1) dy))
+                     len2)
+                  double
+                  (max 0.0)
+                  (min 1.0))
+            proj-x (+ x1 (* t dx))
+            proj-y (+ y1 (* t dy))]
+        (Math/sqrt (+ (* (- px proj-x) (- px proj-x))
+                      (* (- py proj-y) (- py proj-y))))))))
+
+(defn hovered-edge
+  [spaced-edges points bounds mx my]
+  (->> spaced-edges
+       (map (fn [edge]
+              (when-let [{:keys [x1 y1 x2 y2]} (resolved-edge-segment points bounds edge)]
+                (assoc edge :distance (point->segment-distance mx my x1 y1 x2 y2)))))
+       (remove nil?)
+       (filter #(<= (double (:distance %)) 8.0))
+       (sort-by :distance)
+       first))
+
+(defn edge-hover-label
+  [{:keys [from to count]}]
+  (str from "->" to "(" (long (or count 1)) ")"))
 
 (defn- html-escape
   [s]
@@ -900,6 +954,13 @@
         mx (double (q/mouse-x))
         my (double (q/mouse-y))
         world-my (+ my scroll-y)
+        points (module-point-map scene)
+        bounds {:min-x 14.0
+                :max-x (- (double viewport-width) 20.0)
+                :min-y 14.0
+                :max-y (- (content-height-for-scene scene) 14.0)}
+        spaced-edges (prepare-edge-drawables scene declutter-mode)
+        hovered-arrow (hovered-edge spaced-edges points bounds mx world-my)
         hovered (hovered-module-position (:module-positions scene) mx world-my)
         hovered-layer (hovered-layer-label (:layer-rects scene) mx world-my)]
     (q/cursor (if (:drillable? hovered)
@@ -908,12 +969,13 @@
     (q/background 250 250 250)
     (q/push-matrix)
     (q/translate 0 (- scroll-y))
-    (draw-scene-content scene declutter-mode viewport-width viewport-height)
+    (draw-scene-content scene viewport-width spaced-edges)
     (q/pop-matrix)
     (draw-toolbar state)
     (cond
       hovered (draw-tooltip (:full-name hovered) mx my)
-      (:full-name hovered-layer) (draw-tooltip (:full-name hovered-layer) mx my))
+      (:full-name hovered-layer) (draw-tooltip (:full-name hovered-layer) mx my)
+      hovered-arrow (draw-tooltip (edge-hover-label hovered-arrow) mx my))
     (draw-scrollbar content-height viewport-height scroll-y viewport-width)))
 
 (defn handle-key-pressed
@@ -1193,15 +1255,20 @@
                                 (let [f (get module->child from)
                                       t (get module->child to)]
                                   (if (and f t (not= f t))
-                                    (update acc [f t] (fn [old]
-                                                        (if (or (= old :abstract) (= type :abstract))
-                                                          :abstract
-                                                          :direct)))
+                                    (update acc [f t]
+                                            (fn [old]
+                                              (if old
+                                                {:type (if (or (= :abstract (:type old))
+                                                               (= type :abstract))
+                                                         :abstract
+                                                         :direct)
+                                                 :count (inc (long (:count old)))}
+                                                {:type type :count 1})))
                                     acc)))
                               {}
                               (:classified-edges architecture))
-        classified-edges (set (for [[[f t] type] edges-by-pair]
-                                {:from f :to t :type type}))
+        classified-edges (set (for [[[f t] {:keys [type count]}] edges-by-pair]
+                                {:from f :to t :type type :count count}))
         graph {:nodes nodes
                :edges (set (for [{:keys [from to]} classified-edges]
                              {:from from :to to}))

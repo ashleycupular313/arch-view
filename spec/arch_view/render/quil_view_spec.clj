@@ -107,6 +107,10 @@
     (should= "beta.module" (sut/strip-top-namespace "alpha.beta.module"))
     (should= "module" (sut/strip-top-namespace "module")))
 
+  (it "formats edge hover labels with dependency count"
+    (should= "a->b(3)" (sut/edge-hover-label {:from "a" :to "b" :count 3}))
+    (should= "a->b(1)" (sut/edge-hover-label {:from "a" :to "b"})))
+
   (it "finds hovered module by label hitbox"
     (let [modules [{:module "alpha.beta.core"
                     :label "a.b.core"
@@ -125,6 +129,19 @@
                    :full-name "alpha.beta"}]]
       (should-not= nil (sut/hovered-layer-label layers 12.0 10.0))
       (should= nil (sut/hovered-layer-label layers 600.0 80.0))))
+
+  (it "finds hovered arrow and prefers nearest segment"
+    (let [points {"a" {:x 100.0 :y 100.0}
+                  "b" {:x 300.0 :y 100.0}
+                  "c" {:x 100.0 :y 130.0}
+                  "d" {:x 300.0 :y 130.0}}
+          bounds {:min-x 0.0 :max-x 500.0 :min-y 0.0 :max-y 500.0}
+          edges [{:from "a" :to "b" :count 2 :arrowhead :standard}
+                 {:from "c" :to "d" :count 5 :arrowhead :standard}]
+          hovered (sut/hovered-edge edges points bounds 170.0 102.0)]
+      (should= "a" (:from hovered))
+      (should= "b" (:to hovered))
+      (should= 2 (:count hovered))))
 
   (it "computes and clamps vertical scroll range"
     (should= 600.0 (sut/scroll-range 1200 600))
@@ -253,6 +270,21 @@
       (should-not= nil (some #{"acceptance"} labels))
       (should-not= nil (some #{"application"} labels))))
 
+  (it "aggregates grouped edge counts in namespace view"
+    (let [architecture {:graph {:nodes #{"empire.a.one"
+                                         "empire.b.one"
+                                         "empire.a.two"
+                                         "empire.b.two"}
+                                :edges #{}
+                                :abstract-modules #{}}
+                        :classified-edges #{{:from "empire.a.one" :to "empire.b.one" :type :direct}
+                                            {:from "empire.a.two" :to "empire.b.two" :type :direct}}}
+          root-view (sut/view-architecture architecture [])
+          edge (first (:classified-edges root-view))]
+      (should= "a" (:from edge))
+      (should= "b" (:to edge))
+      (should= 2 (:count edge))))
+
   (it "applies 15px parallel spacing to overlapping non-layer edges"
     (let [points {"a" {:x 200.0 :y 60.0}
                   "b" {:x 200.0 :y 300.0}
@@ -322,6 +354,13 @@
       (let [[x1 _ x2 _] @recorded]
         (should= 110.0 x1)
         (should= 300.0 x2))))
+
+  (it "avoids anchoring on rectangle corners for orthogonal arrows"
+    (let [rect {:x 10.0 :y 20.0 :width 100.0 :height 60.0}
+          right-top (#'sut/rect-edge-anchor rect 500.0 20.0)
+          top-left (#'sut/rect-edge-anchor rect 10.0 -100.0)]
+      (should= [110.0 28.0] (:point right-top))
+      (should= [18.0 20.0] (:point top-left))))
 
   (it "cycles declutter modes across three states"
     (should= :concrete (sut/next-declutter-mode :all))
