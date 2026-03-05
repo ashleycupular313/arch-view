@@ -7,9 +7,12 @@
            [java.awt Dimension]
            [java.util.regex Pattern]))
 
+(def ^:private scene-top-padding 42.0)
+
 (defn- layer-y
   [index layer-height layer-gap]
-  (* index (+ layer-height layer-gap)))
+  (+ scene-top-padding
+     (* index (+ layer-height layer-gap))))
 
 (defn- dominant-component
   [modules module->component]
@@ -131,6 +134,7 @@
 (def ^:private racetrack-count 4)
 (def ^:private racetrack-margin 24.0)
 (def ^:private racetrack-gap 24.0)
+(def ^:private max-parallel-offset 60.0)
 
 (defn- track-width-for
   [canvas-width]
@@ -442,7 +446,10 @@
                   {:lane-idx lane-idx
                    :lanes (conj lanes end)})))
             (offset-for-lane [lane lane-count]
-              (* 15.0 (- lane (/ (dec lane-count) 2.0))))]
+              (let [raw (* 15.0 (- lane (/ (dec lane-count) 2.0)))]
+                (-> raw
+                    (max (- max-parallel-offset))
+                    (min max-parallel-offset))))]
       (let [{:keys [edges max-lane]}
             (reduce (fn [{:keys [lanes edges max-lane]} edge]
                       (let [{:keys [lane-idx lanes]} (assign-lane lanes edge)
@@ -496,7 +503,10 @@
                 {:lane lane-idx :lanes (assoc lanes lane-idx end)}
                 {:lane lane-idx :lanes (conj lanes end)})))
           (offset-for-lane [lane lane-count]
-            (* 15.0 (- lane (/ (dec lane-count) 2.0))))]
+            (let [raw (* 15.0 (- lane (/ (dec lane-count) 2.0)))]
+              (-> raw
+                  (max (- max-parallel-offset))
+                  (min max-parallel-offset))))]
     (let [{:keys [edges max-lane]}
           (reduce (fn [{:keys [lanes edges max-lane]} edge]
                     (let [{:keys [lane lanes]} (assign-lane lanes edge)]

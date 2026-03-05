@@ -15,7 +15,7 @@
       (should= [220.0 220.0 220.0]
                (mapv :width (:layer-rects scene)))
       (should= true (every? #(<= 24.0 (:x %)) (:layer-rects scene)))
-      (should= true (every? #(= 0 (:y %)) (:layer-rects scene)))
+      (should= true (every? #(= 42.0 (:y %)) (:layer-rects scene)))
       (should= ["a" "c"]
                (->> (:module-positions scene)
                     (filter #(= 2 (:layer %)))
@@ -55,7 +55,7 @@
                         :classified-edges #{}}
           scene (sut/build-scene architecture {:canvas-width 260 :layer-height 120 :layer-gap 30})
           ys (->> (:module-positions scene) (map :y) distinct sort vec)]
-      (should= [60.0 70.0] ys)))
+      (should= [102.0 112.0] ys)))
 
   (it "keeps module labels aligned when there is enough horizontal space"
     (let [architecture {:layout {:layers [{:index 0 :modules ["alpha.beta.one"
@@ -67,7 +67,7 @@
                         :classified-edges #{}}
           scene (sut/build-scene architecture {:canvas-width 1400 :layer-height 120 :layer-gap 30})
           ys (->> (:module-positions scene) (map :y) distinct sort vec)]
-      (should= [60] ys)))
+      (should= [102.0] ys)))
 
   (it "computes arrowhead points in dependency direction"
     (let [right (sut/arrowhead-points 0 0 10 0 :standard)
