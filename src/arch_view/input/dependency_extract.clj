@@ -6,7 +6,7 @@
 (defn- read-first-form
   [path]
   (with-open [r (java.io.PushbackReader. (io/reader path))]
-    (read r)))
+    (read {:read-cond :allow :features #{:clj}} r)))
 
 (defn- ns-form?
   [form]
