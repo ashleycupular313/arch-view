@@ -59,6 +59,36 @@
   [{:keys [display-label label]}]
   (or display-label label))
 
+(def ^:private toolbar-height 34.0)
+(def ^:private back-button-width 80.0)
+(def ^:private declutter-button-width 240.0)
+(def ^:private button-height 22.0)
+
+(def declutter-modes [:all :concrete :abstract :between-layers])
+
+(defn next-declutter-mode
+  [mode]
+  (let [idx (.indexOf ^java.util.List declutter-modes (or mode :all))
+        current (if (neg? idx) 0 idx)
+        next-idx (mod (inc current) (count declutter-modes))]
+    (nth declutter-modes next-idx)))
+
+(defn declutter-label
+  [mode]
+  (case mode
+    :concrete "Declutter: Concrete"
+    :abstract "Declutter: Abstract"
+    :between-layers "Declutter: Layers"
+    "Declutter: All"))
+
+(defn- back-button-rect
+  []
+  {:x 10.0 :y 6.0 :width back-button-width :height button-height})
+
+(defn- declutter-button-rect
+  []
+  {:x 100.0 :y 6.0 :width declutter-button-width :height button-height})
+
 (defn- overlap?
   [a b]
   (< (Math/abs (double (- (:x a) (:x b))))
@@ -202,19 +232,73 @@
       (< dy -0.1) [(double x1) (- (double y1) label-clearance)]
       :else [(double x1) (double y1)])))
 
+(defn- draw-arrow-between-points
+  [x1 y1 x2 y2 arrowhead]
+  (let [[sx sy] (dependency-start-point x1 y1 x2 y2)
+        [tx ty] (dependency-tip-point x1 y1 x2 y2)
+        [ex ey] (edge-line-endpoint sx sy tx ty arrowhead)]
+    (if (= :closed-triangle arrowhead)
+      (q/stroke 0 128 0)
+      (q/stroke 0 0 0))
+    (q/line sx sy ex ey)
+    (draw-arrowhead sx sy tx ty arrowhead)))
+
 (defn- draw-edge
-  [points {:keys [from to arrowhead]}]
-  (let [{x1 :x y1 :y} (get points from)
-        {x2 :x y2 :y} (get points to)]
+  [points {:keys [from to from-point to-point arrowhead]}]
+  (let [[x1 y1] (or from-point (let [{x :x y :y} (get points from)] [x y]))
+        [x2 y2] (or to-point (let [{x :x y :y} (get points to)] [x y]))]
     (when (and x1 y1 x2 y2)
-      (let [[sx sy] (dependency-start-point x1 y1 x2 y2)
-            [tx ty] (dependency-tip-point x1 y1 x2 y2)
-            [ex ey] (edge-line-endpoint sx sy tx ty arrowhead)]
-      (if (= :closed-triangle arrowhead)
-        (q/stroke 0 128 0)
-        (q/stroke 0 0 0))
-      (q/line sx sy ex ey)
-      (draw-arrowhead sx sy tx ty arrowhead)))))
+      (draw-arrow-between-points x1 y1 x2 y2 arrowhead))))
+
+(defn layer-edge-drawables
+  [scene]
+  (let [module->layer (into {}
+                           (map (fn [{:keys [module layer]}] [module layer])
+                                (:module-positions scene)))
+        layer-rects (into {}
+                         (map (fn [r] [(:index r) r]) (:layer-rects scene)))
+        edges-by-layer (reduce (fn [acc {:keys [from to type]}]
+                                 (let [from-layer (get module->layer from)
+                                       to-layer (get module->layer to)]
+                                   (if (and (number? from-layer)
+                                            (number? to-layer)
+                                            (not= from-layer to-layer))
+                                     (update acc [from-layer to-layer]
+                                             (fn [existing]
+                                               (if (or (= existing :abstract) (= type :abstract))
+                                                 :abstract
+                                                 :direct)))
+                                     acc)))
+                               {}
+                               (:edge-drawables scene))]
+    (->> edges-by-layer
+         (map (fn [[[from-layer to-layer] type]]
+                (let [{fx :x fy :y fw :width fh :height} (get layer-rects from-layer)
+                      {tx :x ty :y tw :width th :height} (get layer-rects to-layer)
+                      from-x (+ fx (/ fw 2.0))
+                      to-x (+ tx (/ tw 2.0))
+                      down? (> to-layer from-layer)
+                      from-y (if down? (+ fy fh) fy)
+                      to-y (if down? ty (+ ty th))]
+                  {:from from-layer
+                   :to to-layer
+                   :from-point [from-x from-y]
+                   :to-point [to-x to-y]
+                   :type type
+                   :arrowhead (arrowhead-for type)})))
+         vec)))
+
+(defn declutter-edge-drawables
+  [scene mode]
+  (case mode
+    :concrete (->> (:edge-drawables scene)
+                   (filter #(= :direct (:type %)))
+                   vec)
+    :abstract (->> (:edge-drawables scene)
+                   (filter #(= :abstract (:type %)))
+                   vec)
+    :between-layers (layer-edge-drawables scene)
+    (:edge-drawables scene)))
 
 (defn- label-hitbox
   [{:keys [x y] :as module-position}]
@@ -321,7 +405,7 @@
       (clamp-scroll (* normalized max-scroll) content-height viewport-height))))
 
 (defn- draw-scene-content
-  [scene]
+  [scene declutter-mode]
   (q/background 250 250 250)
   (doseq [{:keys [x y width height label]} (:layer-rects scene)]
     (q/fill 225 233 242)
@@ -335,9 +419,31 @@
     (q/no-stroke)
     (q/text-align :center :center)
     (q/text (rendered-label module-position) x y))
-  (let [points (module-point-map scene)]
-    (doseq [edge (:edge-drawables scene)]
+  (let [points (module-point-map scene)
+        edge-drawables (declutter-edge-drawables scene declutter-mode)]
+    (doseq [edge edge-drawables]
       (draw-edge points edge))))
+
+(defn- draw-toolbar
+  [{:keys [namespace-path declutter-mode]}]
+  (let [back-rect (back-button-rect)
+        declutter-rect (declutter-button-rect)
+        can-go-back? (seq namespace-path)]
+    (q/no-stroke)
+    (q/fill 238 242 246)
+    (q/rect 0 0 3000 toolbar-height)
+    (q/fill (if can-go-back? 225 205))
+    (q/rect (:x back-rect) (:y back-rect) (:width back-rect) (:height back-rect))
+    (q/fill 0 0 0)
+    (q/text-align :center :center)
+    (q/text "Back" (+ (:x back-rect) (/ (:width back-rect) 2.0)) (+ (:y back-rect) (/ (:height back-rect) 2.0)))
+    (q/fill 225)
+    (q/rect (:x declutter-rect) (:y declutter-rect) (:width declutter-rect) (:height declutter-rect))
+    (q/fill 0 0 0)
+    (q/text-align :center :center)
+    (q/text (declutter-label declutter-mode)
+            (+ (:x declutter-rect) (/ (:width declutter-rect) 2.0))
+            (+ (:y declutter-rect) (/ (:height declutter-rect) 2.0)))))
 
 (defn- draw-tooltip
   [full-name mx my]
@@ -359,7 +465,7 @@
     (q/rect x y width height)))
 
 (defn- draw-scene
-  [{:keys [scene architecture namespace-path scroll-y viewport-height viewport-width] :as _state}]
+  [{:keys [scene declutter-mode scroll-y viewport-height viewport-width] :as state}]
   (let [content-height (content-height-for-scene scene)
         mx (double (q/mouse-x))
         my (double (q/mouse-y))
@@ -371,8 +477,9 @@
     (q/background 250 250 250)
     (q/push-matrix)
     (q/translate 0 (- scroll-y))
-    (draw-scene-content scene)
+    (draw-scene-content scene declutter-mode)
     (q/pop-matrix)
+    (draw-toolbar state)
     (when hovered
       (draw-tooltip (:full-name hovered) mx my))
     (draw-scrollbar content-height viewport-height scroll-y viewport-width)))
@@ -440,19 +547,40 @@
           state))
       state)))
 
+(defn- navigate-up
+  [{:keys [namespace-path] :as state}]
+  (let [current-path (vec (or namespace-path []))]
+    (if (seq current-path)
+      (drilldown-scene state (vec (butlast current-path)))
+      state)))
+
+(defn- toolbar-click-target
+  [mx my]
+  (cond
+    (point-in-rect? (back-button-rect) mx my) :back
+    (point-in-rect? (declutter-button-rect) mx my) :declutter
+    :else nil))
+
+(defn- apply-toolbar-click
+  [state event]
+  (let [[mx my] (mouse-pos event)]
+    (case (toolbar-click-target mx my)
+      :back (navigate-up state)
+      :declutter (update state :declutter-mode next-declutter-mode)
+      nil)))
+
 (defn handle-mouse-released
-  [{:keys [dragging-scrollbar?] :as state} event]
+  [{:keys [dragging-scrollbar?] :as state} _event]
   (if dragging-scrollbar?
     (assoc state :dragging-scrollbar? false :drag-offset nil)
-    (-> state
-        (assoc :dragging-scrollbar? false :drag-offset nil)
-        (apply-drilldown-click event))))
+    (assoc state :dragging-scrollbar? false :drag-offset nil)))
 
 (defn handle-mouse-clicked
   [state event]
   (if (:dragging-scrollbar? state)
     state
-    (apply-drilldown-click state event)))
+    (or (apply-toolbar-click state event)
+        (apply-drilldown-click state event))))
 
 (defn- namespace-segments
   [module]
@@ -554,6 +682,7 @@
                 {:scene initial-scene
                  :architecture effective-architecture
                  :namespace-path (when architecture [])
+                 :declutter-mode :all
                  :scroll-y 0.0
                  :dragging-scrollbar? false
                  :drag-offset nil

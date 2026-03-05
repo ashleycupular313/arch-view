@@ -210,4 +210,73 @@
           labels (into {} (map (juxt :module :display-label) (:module-positions initial)))]
       (should= #{"alpha" "beta"} modules)
       (should= "+ alpha" (get labels "alpha"))
-      (should= "+ beta" (get labels "beta")))))
+      (should= "+ beta" (get labels "beta"))))
+
+  (it "cycles declutter modes across all four states"
+    (should= :concrete (sut/next-declutter-mode :all))
+    (should= :abstract (sut/next-declutter-mode :concrete))
+    (should= :between-layers (sut/next-declutter-mode :abstract))
+    (should= :all (sut/next-declutter-mode :between-layers)))
+
+  (it "filters edges by declutter mode"
+    (let [scene {:module-positions [{:module "a" :layer 0 :x 100 :y 60}
+                                    {:module "b" :layer 1 :x 200 :y 200}
+                                    {:module "c" :layer 2 :x 300 :y 340}]
+                 :layer-rects [{:index 0 :x 0 :y 0 :width 400 :height 100}
+                               {:index 1 :x 0 :y 120 :width 400 :height 100}
+                               {:index 2 :x 0 :y 240 :width 400 :height 100}]
+                 :edge-drawables [{:from "a" :to "b" :type :direct :arrowhead :standard}
+                                  {:from "b" :to "c" :type :abstract :arrowhead :closed-triangle}]}
+          concrete (sut/declutter-edge-drawables scene :concrete)
+          abstract (sut/declutter-edge-drawables scene :abstract)
+          layer-mode (sut/declutter-edge-drawables scene :between-layers)]
+      (should= 1 (count concrete))
+      (should= :direct (:type (first concrete)))
+      (should= 1 (count abstract))
+      (should= :abstract (:type (first abstract)))
+      (should= 2 (count layer-mode))))
+
+  (it "collapses layer edges and promotes abstract dependency type"
+    (let [scene {:module-positions [{:module "a1" :layer 0 :x 100 :y 60}
+                                    {:module "a2" :layer 0 :x 200 :y 60}
+                                    {:module "b1" :layer 1 :x 120 :y 200}]
+                 :layer-rects [{:index 0 :x 0 :y 0 :width 400 :height 100}
+                               {:index 1 :x 0 :y 120 :width 400 :height 100}]
+                 :edge-drawables [{:from "a1" :to "b1" :type :direct :arrowhead :standard}
+                                  {:from "a2" :to "b1" :type :abstract :arrowhead :closed-triangle}]}
+          layer-edges (sut/layer-edge-drawables scene)]
+      (should= 1 (count layer-edges))
+      (should= :abstract (:type (first layer-edges)))
+      (should= :closed-triangle (:arrowhead (first layer-edges)))))
+
+  (it "cycles declutter mode when declutter button is clicked"
+    (let [state {:scene {:module-positions [] :layer-rects [] :edge-drawables []}
+                 :architecture nil
+                 :namespace-path nil
+                 :declutter-mode :all
+                 :dragging-scrollbar? false}
+          next-state (sut/handle-mouse-clicked state {:x 120.0 :y 10.0})]
+      (should= :concrete (:declutter-mode next-state))))
+
+  (it "back button pops one namespace level"
+    (let [architecture {:graph {:nodes #{"empire.alpha.one"
+                                         "empire.alpha.two"
+                                         "empire.beta.one"}
+                                :edges #{}
+                                :abstract-modules #{}}
+                        :classified-edges #{}}
+          alpha-view (sut/view-architecture architecture ["alpha"])
+          alpha-scene (sut/attach-drillable-markers (sut/build-scene alpha-view) architecture ["alpha"])
+          state {:scene alpha-scene
+                 :architecture architecture
+                 :namespace-path ["alpha"]
+                 :declutter-mode :all
+                 :scroll-y 0.0
+                 :dragging-scrollbar? false
+                 :drag-offset nil
+                 :viewport-height 600
+                 :viewport-width 1200}
+          next-state (sut/handle-mouse-clicked state {:x 20.0 :y 10.0})]
+      (should= [] (:namespace-path next-state))
+      (should= #{"alpha" "beta"}
+               (->> (get-in next-state [:scene :module-positions]) (map :module) set)))))
