@@ -212,7 +212,31 @@
               module)))
         module-positions))
 
-(defn- draw-scene
+(defn scroll-range
+  [content-height viewport-height]
+  (max 0.0 (- (double content-height) (double viewport-height))))
+
+(defn clamp-scroll
+  [scroll-y content-height viewport-height]
+  (let [max-scroll (scroll-range content-height viewport-height)]
+    (-> scroll-y double (max 0.0) (min max-scroll))))
+
+(defn scrollbar-rect
+  [content-height viewport-height scroll-y viewport-width]
+  (when (> content-height viewport-height)
+    (let [track-height (- (double viewport-height) 24.0)
+          ratio (/ (double viewport-height) (double content-height))
+          thumb-height (max 30.0 (* track-height ratio))
+          max-scroll (scroll-range content-height viewport-height)
+          thumb-y (if (zero? max-scroll)
+                    12.0
+                    (+ 12.0 (* (- track-height thumb-height) (/ scroll-y max-scroll))))]
+      {:x (- (double viewport-width) 12.0)
+       :y thumb-y
+       :width 8.0
+       :height thumb-height})))
+
+(defn- draw-scene-content
   [scene]
   (q/background 250 250 250)
   (doseq [{:keys [x y width height label]} (:layer-rects scene)]
@@ -227,47 +251,93 @@
     (q/no-stroke)
     (q/text-align :center :center)
     (q/text label x y))
-  (let [points (module-point-map scene)
-        mx (q/mouse-x)
-        my (q/mouse-y)
-        hovered (hovered-module (:module-positions scene) mx my)]
+  (let [points (module-point-map scene)]
     (doseq [edge (:edge-drawables scene)]
-      (draw-edge points edge))
+      (draw-edge points edge))))
+
+(defn- draw-tooltip
+  [hovered mx my]
+  (q/fill 255 255 225)
+  (q/stroke 80 80 80)
+  (q/rect (+ mx 12) (+ my 12) (+ 12 (* 7 (count hovered))) 20)
+  (q/fill 0 0 0)
+  (q/no-stroke)
+  (q/text-align :left :center)
+  (q/text hovered (+ mx 18) (+ my 22)))
+
+(defn- draw-scrollbar
+  [content-height viewport-height scroll-y viewport-width]
+  (when-let [{:keys [x y width height]} (scrollbar-rect content-height viewport-height scroll-y viewport-width)]
+    (q/no-stroke)
+    (q/fill 220 220 220)
+    (q/rect (- x 1.0) 10.0 (+ width 2.0) (- viewport-height 20.0))
+    (q/fill 120 120 120)
+    (q/rect x y width height)))
+
+(defn- draw-scene
+  [{:keys [scene scroll-y viewport-height viewport-width]}]
+  (let [content-height (->> (:layer-rects scene)
+                            (map (fn [{:keys [y height]}] (+ y height)))
+                            (apply max 0)
+                            (+ 40))
+        mx (double (q/mouse-x))
+        my (double (q/mouse-y))
+        world-my (+ my scroll-y)
+        hovered (hovered-module (:module-positions scene) mx world-my)]
+    (q/background 250 250 250)
+    (q/push-matrix)
+    (q/translate 0 (- scroll-y))
+    (draw-scene-content scene)
+    (q/pop-matrix)
     (when hovered
-      (q/fill 255 255 225)
-      (q/stroke 80 80 80)
-      (q/rect (+ mx 12) (+ my 12) (+ 12 (* 7 (count hovered))) 20)
-      (q/fill 0 0 0)
-      (q/no-stroke)
-      (q/text-align :left :center)
-      (q/text hovered (+ mx 18) (+ my 22)))))
+      (draw-tooltip hovered mx my))
+    (draw-scrollbar content-height viewport-height scroll-y viewport-width)))
 
 (defn handle-key-pressed
-  [scene event]
+  [state event]
   (when (= :escape (:key event))
     (q/exit))
-  scene)
+  state)
+
+(defn handle-mouse-wheel
+  [{:keys [scene scroll-y viewport-height viewport-width] :as state} event]
+  (let [content-height (->> (:layer-rects scene)
+                            (map (fn [{:keys [y height]}] (+ y height)))
+                            (apply max 0)
+                            (+ 40))
+        delta (* 30.0 (double (or (:count event) 0)))
+        next-scroll (clamp-scroll (+ scroll-y delta) content-height viewport-height)]
+    (assoc state
+           :scroll-y next-scroll
+           :viewport-height viewport-height
+           :viewport-width viewport-width)))
 
 (defn show!
   ([scene]
    (show! scene {}))
   ([scene {:keys [title]
            :or {title "architecture-viewer"}}]
-   (let [height (if (seq (:layer-rects scene))
-                  (->> (:layer-rects scene)
-                       (map (fn [{:keys [y height]}] (+ y height)))
-                       (apply max)
-                       (+ 40))
-                  400)
+   (let [content-height (if (seq (:layer-rects scene))
+                          (->> (:layer-rects scene)
+                               (map (fn [{:keys [y height]}] (+ y height)))
+                               (apply max)
+                               (+ 40))
+                          400)
+         viewport-height (int (min 900 (max 400 content-height)))
          width (if (seq (:layer-rects scene))
                  (:width (first (:layer-rects scene)))
                  1200)]
      (q/sketch
        :title title
-       :size [width height]
-       :setup (fn [] scene)
+       :size [width viewport-height]
+       :setup (fn []
+                {:scene scene
+                 :scroll-y 0.0
+                 :viewport-height viewport-height
+                 :viewport-width width})
        :draw draw-scene
        :key-pressed handle-key-pressed
+       :mouse-wheel handle-mouse-wheel
        :middleware [m/fun-mode]))))
 
 (defn wait-until-closed!

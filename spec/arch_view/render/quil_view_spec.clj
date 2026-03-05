@@ -98,6 +98,23 @@
       (should= "alpha.beta.core" (sut/hovered-module modules 100.0 50.0))
       (should= nil (sut/hovered-module modules 300.0 300.0))))
 
+  (it "computes and clamps vertical scroll range"
+    (should= 600.0 (sut/scroll-range 1200 600))
+    (should= 0.0 (sut/scroll-range 300 600))
+    (should= 0.0 (sut/clamp-scroll -20 1200 600))
+    (should= 300.0 (sut/clamp-scroll 300 1200 600))
+    (should= 600.0 (sut/clamp-scroll 900 1200 600)))
+
+  (it "builds scrollbar thumb when content exceeds viewport"
+    (let [bar (sut/scrollbar-rect 2000 500 300 1200)]
+      (should-not= nil bar)
+      (should= 1188.0 (:x bar))
+      (should= 8.0 (:width bar))
+      (should= true (> (:height bar) 0.0))))
+
+  (it "omits scrollbar when content fits viewport"
+    (should= nil (sut/scrollbar-rect 400 500 0 1200)))
+
   (it "exits sketch when escape is pressed"
     (let [exited? (atom false)]
       (with-redefs [quil.core/exit (fn [] (reset! exited? true))]
