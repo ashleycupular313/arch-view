@@ -133,7 +133,6 @@
 (def ^:private racetrack-count 4)
 (def ^:private racetrack-margin 24.0)
 (def ^:private racetrack-gap 24.0)
-(def ^:private max-parallel-offset 60.0)
 
 (defn- track-width-for
   [canvas-width]
@@ -505,10 +504,7 @@
                   {:lane-idx lane-idx
                    :lanes (conj lanes [box])})))
             (offset-for-lane [lane lane-count]
-              (let [raw (* 15.0 (- lane (/ (dec lane-count) 2.0)))]
-                (-> raw
-                    (max (- max-parallel-offset))
-                    (min max-parallel-offset))))
+              (* 15.0 (- lane (/ (dec lane-count) 2.0))))
             (normal-unit [x1 y1 x2 y2]
               (let [dx (- x2 x1)
                     dy (- y2 y1)
@@ -580,10 +576,7 @@
                 {:lane lane-idx :lanes (update lanes lane-idx conj box)}
                 {:lane lane-idx :lanes (conj lanes [box])})))
           (offset-for-lane [lane lane-count]
-            (let [raw (* 15.0 (- lane (/ (dec lane-count) 2.0)))]
-              (-> raw
-                  (max (- max-parallel-offset))
-                  (min max-parallel-offset))))
+            (* 15.0 (- lane (/ (dec lane-count) 2.0))))
           (normal-unit [x1 y1 x2 y2]
             (let [dx (- x2 x1)
                   dy (- y2 y1)

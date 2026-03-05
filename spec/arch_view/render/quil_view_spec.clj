@@ -284,6 +284,25 @@
           dist (Math/sqrt (+ (* dx dx) (* dy dy)))]
       (should= 15.0 dist)))
 
+  (it "keeps 15px spacing across many overlapping vertical arrows"
+    (let [points {"a" {:x 100.0 :y 100.0}
+                  "b" {:x 100.0 :y 300.0}
+                  "c" {:x 100.0 :y 110.0}
+                  "d" {:x 100.0 :y 310.0}
+                  "e" {:x 100.0 :y 120.0}
+                  "f" {:x 100.0 :y 320.0}
+                  "g" {:x 100.0 :y 130.0}
+                  "h" {:x 100.0 :y 330.0}}
+          edges [{:from "a" :to "b" :type :direct :arrowhead :standard}
+                 {:from "c" :to "d" :type :direct :arrowhead :standard}
+                 {:from "e" :to "f" :type :direct :arrowhead :standard}
+                 {:from "g" :to "h" :type :direct :arrowhead :standard}]
+          offsets (->> (sut/apply-parallel-arrow-spacing edges points)
+                       (map :parallel-offset-x)
+                       sort
+                       vec)]
+      (should= [-22.5 -7.5 7.5 22.5] offsets)))
+
   (it "keeps rectangle-anchored endpoints on rectangle edges under offsets"
     (let [from-rect {:x 10.0 :y 20.0 :width 100.0 :height 60.0}
           to-rect {:x 300.0 :y 40.0 :width 120.0 :height 80.0}
