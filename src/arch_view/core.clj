@@ -74,6 +74,7 @@
     (when out
       (spit out (pr-str architecture)))
     (when-not no-gui
-      (-> (render/show! scene {:title (str "architecture-viewer: " (str/trim source-label))})
+      (-> (render/show! scene {:title (str "architecture-viewer: " (str/trim source-label))
+                               :architecture architecture})
           (render/wait-until-closed!))
       (exit-program!))))

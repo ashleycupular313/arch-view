@@ -1,5 +1,6 @@
 (ns arch-view.render.quil-view
   (:require [clojure.string :as str]
+            [arch-view.layout.layers :as layers]
             [quil.core :as q]
             [quil.middleware :as m]))
 
@@ -17,7 +18,7 @@
        ffirst))
 
 (defn- module-positions-for-layer
-  [layer-index modules canvas-width layer-height layer-gap]
+  [layer-index modules canvas-width layer-height layer-gap module->kind module->full-name]
   (let [count-modules (count modules)
         spacing (/ canvas-width (inc count-modules))
         y (+ (layer-y layer-index layer-height layer-gap) (/ layer-height 2))]
@@ -25,7 +26,9 @@
                    {:module module
                     :layer layer-index
                     :x (* (inc idx) spacing)
-                    :y y})
+                    :y y
+                    :kind (or (get module->kind module) :concrete)
+                    :full-name (or (get module->full-name module) module)})
                  modules)))
 
 (defn abbreviate-module-name
@@ -84,8 +87,10 @@
    (build-scene architecture {}))
   ([architecture {:keys [canvas-width layer-height layer-gap]
                   :or {canvas-width 1200 layer-height 140 layer-gap 24}}]
-   (let [layers (get-in architecture [:layout :layers])
+  (let [layers (get-in architecture [:layout :layers])
          module->component (or (:module->component architecture) {})
+         module->kind (or (:module->kind architecture) {})
+         module->full-name (or (:module->full-name architecture) {})
          layer-rects (mapv (fn [{:keys [index]}]
                              (let [modules (get-in architecture [:layout :layers index :modules])
                                    component (dominant-component modules module->component)]
@@ -100,7 +105,7 @@
                            layers)
          module-positions (->> layers
                                (mapcat (fn [{:keys [index modules]}]
-                                         (->> (module-positions-for-layer index modules canvas-width layer-height layer-gap)
+                                         (->> (module-positions-for-layer index modules canvas-width layer-height layer-gap module->kind module->full-name)
                                               (map (fn [m]
                                                      (assoc m :label (abbreviate-module-name (:module m)))))
                                               apply-layer-stagger)))
@@ -109,7 +114,8 @@
                              (map (fn [{:keys [from to type]}]
                                     {:from from
                                      :to to
-                                     :arrowhead (arrowhead-for type)}))
+                                     :arrowhead (arrowhead-for type)
+                                     :type type}))
                              vec)]
      {:layer-rects layer-rects
       :module-positions module-positions
@@ -189,7 +195,9 @@
       (let [[sx sy] (dependency-start-point x1 y1 x2 y2)
             [tx ty] (dependency-tip-point x1 y1 x2 y2)
             [ex ey] (edge-line-endpoint sx sy tx ty arrowhead)]
-      (q/stroke 40 40 40)
+      (if (= :closed-triangle arrowhead)
+        (q/stroke 0 128 0)
+        (q/stroke 0 0 0))
       (q/line sx sy ex ey)
       (draw-arrowhead sx sy tx ty arrowhead)))))
 
@@ -210,6 +218,15 @@
             (when (and (<= left mx right)
                        (<= top my bottom))
               module)))
+        module-positions))
+
+(defn- hovered-module-position
+  [module-positions mx my]
+  (some (fn [m]
+          (let [{:keys [left right top bottom]} (label-hitbox m)]
+            (when (and (<= left mx right)
+                       (<= top my bottom))
+              m)))
         module-positions))
 
 (defn scroll-range
@@ -280,14 +297,14 @@
       (draw-edge points edge))))
 
 (defn- draw-tooltip
-  [hovered mx my]
+  [full-name mx my]
   (q/fill 255 255 225)
   (q/stroke 80 80 80)
-  (q/rect (+ mx 12) (+ my 12) (+ 12 (* 7 (count hovered))) 20)
+  (q/rect (+ mx 12) (+ my 12) (+ 12 (* 7 (count full-name))) 20)
   (q/fill 0 0 0)
   (q/no-stroke)
   (q/text-align :left :center)
-  (q/text hovered (+ mx 18) (+ my 22)))
+  (q/text full-name (+ mx 18) (+ my 22)))
 
 (defn- draw-scrollbar
   [content-height viewport-height scroll-y viewport-width]
@@ -304,14 +321,14 @@
         mx (double (q/mouse-x))
         my (double (q/mouse-y))
         world-my (+ my scroll-y)
-        hovered (hovered-module (:module-positions scene) mx world-my)]
+        hovered (hovered-module-position (:module-positions scene) mx world-my)]
     (q/background 250 250 250)
     (q/push-matrix)
     (q/translate 0 (- scroll-y))
     (draw-scene-content scene)
     (q/pop-matrix)
     (when hovered
-      (draw-tooltip hovered mx my))
+      (draw-tooltip (:full-name hovered) mx my))
     (draw-scrollbar content-height viewport-height scroll-y viewport-width)))
 
 (defn handle-key-pressed
@@ -364,26 +381,116 @@
   [state _]
   (assoc state :dragging-scrollbar? false :drag-offset nil))
 
+(defn- namespace-segments
+  [module]
+  (vec (rest (str/split module #"\."))))
+
+(defn- prefix?
+  [prefix parts]
+  (and (<= (count prefix) (count parts))
+       (= prefix (subvec parts 0 (count prefix)))))
+
+(defn view-architecture
+  [architecture namespace-path]
+  (let [all-modules (or (get-in architecture [:graph :nodes]) #{})
+        scoped-modules (->> all-modules
+                            (filter (fn [m]
+                                      (let [parts (namespace-segments m)]
+                                        (and (prefix? namespace-path parts)
+                                             (> (count parts) (count namespace-path))))))
+                            set)
+        module->child (into {}
+                           (for [m scoped-modules
+                                 :let [parts (namespace-segments m)]]
+                             [m (nth parts (count namespace-path))]))
+        nodes (set (vals module->child))
+        abstract-source (or (get-in architecture [:graph :abstract-modules]) #{})
+        module->kind (into {}
+                          (for [n nodes]
+                            [n (if (some #(and (= n (get module->child %))
+                                               (contains? abstract-source %))
+                                         scoped-modules)
+                                 :abstract
+                                 :concrete)]))
+        module->full-name (into {}
+                               (for [n nodes]
+                                 [n (str/join "." (concat namespace-path [n]))]))
+        edges-by-pair (reduce (fn [acc {:keys [from to type]}]
+                                (let [f (get module->child from)
+                                      t (get module->child to)]
+                                  (if (and f t (not= f t))
+                                    (update acc [f t] (fn [old]
+                                                        (if (or (= old :abstract) (= type :abstract))
+                                                          :abstract
+                                                          :direct)))
+                                    acc)))
+                              {}
+                              (:classified-edges architecture))
+        classified-edges (set (for [[[f t] type] edges-by-pair]
+                                {:from f :to t :type type}))
+        graph {:nodes nodes
+               :edges (set (for [{:keys [from to]} classified-edges]
+                             {:from from :to to}))
+               :abstract-modules (set (for [[n k] module->kind :when (= k :abstract)] n))}
+        layout (layers/assign-layers graph)]
+    {:namespace-path namespace-path
+     :graph graph
+     :layout layout
+     :classified-edges classified-edges
+     :module->kind module->kind
+     :module->full-name module->full-name}))
+
+(defn- drilldown-scene
+  [state path]
+  (let [view (view-architecture (:architecture state) path)
+        scene (build-scene view)]
+    (assoc state
+           :namespace-path path
+           :scene scene)))
+
+(defn handle-mouse-clicked
+  [{:keys [scene scroll-y dragging-scrollbar? namespace-path] :as state} _]
+  (if dragging-scrollbar?
+    state
+    (let [mx (double (q/mouse-x))
+          my (double (q/mouse-y))
+          world-my (+ my scroll-y)
+          hovered (hovered-module-position (:module-positions scene) mx world-my)]
+      (if hovered
+        (let [candidate (conj (or namespace-path []) (:module hovered))
+              child-view (view-architecture (:architecture state) candidate)]
+          (if (seq (get-in child-view [:graph :nodes]))
+            (drilldown-scene state candidate)
+            state))
+        state))))
+
 (defn show!
   ([scene]
    (show! scene {}))
-  ([scene {:keys [title]
+  ([scene {:keys [title architecture]
            :or {title "architecture-viewer"}}]
-   (let [content-height (if (seq (:layer-rects scene))
-                          (->> (:layer-rects scene)
+   (let [effective-architecture (or architecture {:scene scene})
+         initial-view (if architecture
+                        (view-architecture effective-architecture [])
+                        {:scene scene})
+         initial-scene (or (:scene initial-view) scene)
+         content-height (if (seq (:layer-rects initial-scene))
+                          (->> (:layer-rects initial-scene)
                                (map (fn [{:keys [y height]}] (+ y height)))
                                (apply max)
                                (+ 40))
                           400)
          viewport-height (int (min 900 (max 400 content-height)))
-         width (if (seq (:layer-rects scene))
-                 (:width (first (:layer-rects scene)))
+         width (if (seq (:layer-rects initial-scene))
+                 (:width (first (:layer-rects initial-scene)))
                  1200)]
      (q/sketch
        :title title
        :size [width viewport-height]
        :setup (fn []
-                {:scene scene
+                {:scene initial-scene
+                 :architecture effective-architecture
+                 :namespace-path (when architecture [])
                  :scroll-y 0.0
                  :dragging-scrollbar? false
                  :drag-offset nil
@@ -392,10 +499,11 @@
        :draw draw-scene
        :key-pressed handle-key-pressed
        :mouse-wheel handle-mouse-wheel
-       :mouse-pressed handle-mouse-pressed
-       :mouse-dragged handle-mouse-dragged
-       :mouse-released handle-mouse-released
-       :middleware [m/fun-mode]))))
+        :mouse-pressed handle-mouse-pressed
+        :mouse-dragged handle-mouse-dragged
+       :mouse-clicked handle-mouse-clicked
+        :mouse-released handle-mouse-released
+        :middleware [m/fun-mode]))))
 
 (defn wait-until-closed!
   [sketch]
