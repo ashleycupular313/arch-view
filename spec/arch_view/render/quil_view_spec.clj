@@ -304,11 +304,10 @@
         (should= 110.0 x1)
         (should= 300.0 x2))))
 
-  (it "cycles declutter modes across all four states"
+  (it "cycles declutter modes across three states"
     (should= :concrete (sut/next-declutter-mode :all))
     (should= :abstract (sut/next-declutter-mode :concrete))
-    (should= :between-layers (sut/next-declutter-mode :abstract))
-    (should= :all (sut/next-declutter-mode :between-layers)))
+    (should= :all (sut/next-declutter-mode :abstract)))
 
   (it "filters edges by declutter mode"
     (let [scene {:module-positions [{:module "a" :layer 0 :x 100 :y 60}
@@ -320,13 +319,11 @@
                  :edge-drawables [{:from "a" :to "b" :type :direct :arrowhead :standard}
                                   {:from "b" :to "c" :type :abstract :arrowhead :closed-triangle}]}
           concrete (sut/declutter-edge-drawables scene :concrete)
-          abstract (sut/declutter-edge-drawables scene :abstract)
-          layer-mode (sut/declutter-edge-drawables scene :between-layers)]
+          abstract (sut/declutter-edge-drawables scene :abstract)]
       (should= 1 (count concrete))
       (should= :direct (:type (first concrete)))
       (should= 1 (count abstract))
-      (should= :abstract (:type (first abstract)))
-      (should= 2 (count layer-mode))))
+      (should= :abstract (:type (first abstract)))))
 
   (it "collapses layer edges and promotes abstract dependency type"
     (let [scene {:module-positions [{:module "a1" :layer 0 :x 100 :y 60}

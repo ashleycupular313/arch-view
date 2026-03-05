@@ -70,7 +70,7 @@
 (def ^:private declutter-button-width 240.0)
 (def ^:private button-height 26.0)
 
-(def declutter-modes [:all :concrete :abstract :between-layers])
+(def declutter-modes [:all :concrete :abstract])
 
 (defn next-declutter-mode
   [mode]
@@ -84,7 +84,6 @@
   (case mode
     :concrete "Declutter: Concrete"
     :abstract "Declutter: Abstract"
-    :between-layers "Declutter: Layers"
     "Declutter: All"))
 
 (defn- back-button-rect
@@ -544,14 +543,19 @@
     :abstract (->> (:edge-drawables scene)
                    (filter #(= :abstract (:type %)))
                    vec)
-    :between-layers (layer-edge-drawables scene)
     (:edge-drawables scene)))
 
 (defn apply-parallel-arrow-spacing
   [edge-drawables points]
-  (letfn [(base-points [{:keys [from to from-point to-point]}]
-            (let [[x1 y1] (or from-point (let [{x :x y :y} (get points from)] [x y]))
-                  [x2 y2] (or to-point (let [{x :x y :y} (get points to)] [x y]))]
+  (letfn [(base-points [{:keys [from to from-point to-point from-rect to-rect]}]
+            (let [[sx sy] (or from-point (let [{x :x y :y} (get points from)] [x y]))
+                  [tx ty] (or to-point (let [{x :x y :y} (get points to)] [x y]))
+                  [x1 y1] (if from-rect
+                            (:point (rect-edge-anchor from-rect tx ty))
+                            [sx sy])
+                  [x2 y2] (if to-rect
+                            (:point (rect-edge-anchor to-rect x1 y1))
+                            [tx ty])]
               [x1 y1 x2 y2]))
           (bbox [edge]
             (let [[x1 y1 x2 y2] (base-points edge)]
@@ -764,9 +768,7 @@
                                       (assoc edge
                                              :from-rect (get layer-rect-by-index from-layer)
                                              :to-rect (get layer-rect-by-index to-layer))))))
-        spaced-edges (if (= :between-layers declutter-mode)
-                       edge-drawables
-                       (apply-parallel-arrow-spacing edge-drawables points))
+        spaced-edges (apply-parallel-arrow-spacing edge-drawables points)
         bounds {:min-x 14.0
                 :max-x (- (double viewport-width) 20.0)
                 :min-y 14.0
