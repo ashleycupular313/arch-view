@@ -134,4 +134,48 @@
     (let [exited? (atom false)]
       (with-redefs [quil.core/exit (fn [] (reset! exited? true))]
         (sut/handle-key-pressed {} {:key :a}))
-      (should= false @exited?))))
+      (should= false @exited?)))
+
+  (it "drills down when a clickable namespace label is clicked"
+    (let [architecture {:graph {:nodes #{"empire.alpha.one"
+                                         "empire.alpha.two"
+                                         "empire.beta.one"}
+                                :edges #{}
+                                :abstract-modules #{}}
+                        :classified-edges #{}}
+          root-view (sut/view-architecture architecture [])
+          root-scene (sut/build-scene root-view)
+          alpha-pos (some #(when (= "alpha" (:module %)) %) (:module-positions root-scene))
+          state {:scene root-scene
+                 :architecture architecture
+                 :namespace-path []
+                 :scroll-y 0.0
+                 :dragging-scrollbar? false
+                 :drag-offset nil
+                 :viewport-height 600
+                 :viewport-width 1200}
+          next-state (sut/handle-mouse-clicked state {:x (:x alpha-pos) :y (:y alpha-pos)})]
+      (should= ["alpha"] (:namespace-path next-state))
+      (should= #{"one" "two"}
+               (->> (get-in next-state [:scene :module-positions])
+                    (map :module)
+                    set))))
+
+  (it "keeps state unchanged when clicked namespace has no deeper children"
+    (let [architecture {:graph {:nodes #{"empire.alpha.one"}
+                                :edges #{}
+                                :abstract-modules #{}}
+                        :classified-edges #{}}
+          alpha-view (sut/view-architecture architecture ["alpha"])
+          alpha-scene (sut/build-scene alpha-view)
+          one-pos (some #(when (= "one" (:module %)) %) (:module-positions alpha-scene))
+          state {:scene alpha-scene
+                 :architecture architecture
+                 :namespace-path ["alpha"]
+                 :scroll-y 0.0
+                 :dragging-scrollbar? false
+                 :drag-offset nil
+                 :viewport-height 600
+                 :viewport-width 1200}
+          next-state (sut/handle-mouse-clicked state {:x (:x one-pos) :y (:y one-pos)})]
+      (should= state next-state))))

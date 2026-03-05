@@ -215,8 +215,10 @@
 (defn- label-hitbox
   [{:keys [x y label]}]
   (let [width (label-width label)
-        half-w (/ width 2.0)
-        half-h 7.0]
+        pad-x 8.0
+        pad-y 6.0
+        half-w (+ (/ width 2.0) pad-x)
+        half-h (+ 7.0 pad-y)]
     {:left (- x half-w)
      :right (+ x half-w)
      :top (- y half-h)
@@ -241,6 +243,12 @@
         module-positions))
 
 (declare view-architecture drilldown-scene)
+
+(defn- drillable?
+  [state hovered]
+  (let [candidate (conj (or (:namespace-path state) []) (:module hovered))
+        child-view (view-architecture (:architecture state) candidate)]
+    (seq (get-in child-view [:graph :nodes]))))
 
 (defn scroll-range
   [content-height viewport-height]
@@ -329,12 +337,19 @@
     (q/rect x y width height)))
 
 (defn- draw-scene
-  [{:keys [scene scroll-y viewport-height viewport-width]}]
+  [{:keys [scene architecture namespace-path scroll-y viewport-height viewport-width] :as _state}]
   (let [content-height (content-height-for-scene scene)
         mx (double (q/mouse-x))
         my (double (q/mouse-y))
         world-my (+ my scroll-y)
         hovered (hovered-module-position (:module-positions scene) mx world-my)]
+    (q/cursor (if (and hovered
+                       architecture
+                       (drillable? {:architecture architecture
+                                    :namespace-path namespace-path}
+                                   hovered))
+                :cross
+                :arrow))
     (q/background 250 250 250)
     (q/push-matrix)
     (q/translate 0 (- scroll-y))
@@ -368,12 +383,16 @@
            :viewport-height viewport-height
            :viewport-width viewport-width)))
 
+(defn- mouse-pos
+  [event]
+  [(double (or (:x event) (q/mouse-x)))
+   (double (or (:y event) (q/mouse-y)))])
+
 (defn handle-mouse-pressed
-  [{:keys [scene scroll-y viewport-height viewport-width] :as state} _]
+  [{:keys [scene scroll-y viewport-height viewport-width] :as state} event]
   (let [content-height (content-height-for-scene scene)
         thumb (scrollbar-rect content-height viewport-height scroll-y viewport-width)
-        mx (double (q/mouse-x))
-        my (double (q/mouse-y))]
+        [mx my] (mouse-pos event)]
     (if (and thumb (point-in-rect? thumb mx my))
       (assoc state
              :dragging-scrollbar? true
@@ -381,31 +400,41 @@
       state)))
 
 (defn handle-mouse-dragged
-  [{:keys [scene viewport-height dragging-scrollbar? drag-offset] :as state} _]
+  [{:keys [scene viewport-height dragging-scrollbar? drag-offset] :as state} event]
   (if-not dragging-scrollbar?
     state
     (let [content-height (content-height-for-scene scene)
-          mouse-y (double (q/mouse-y))
+          [_ mouse-y] (mouse-pos event)
           thumb-y (- mouse-y (double (or drag-offset 0)))
           next-scroll (thumb-y->scroll thumb-y content-height viewport-height)]
       (assoc state :scroll-y next-scroll))))
 
+(defn- apply-drilldown-click
+  [{:keys [scene scroll-y namespace-path] :as state} event]
+  (let [[mx my] (mouse-pos event)
+        world-my (+ my scroll-y)
+        hovered (hovered-module-position (:module-positions scene) mx world-my)]
+    (if hovered
+      (let [candidate (conj (or namespace-path []) (:module hovered))
+            child-view (view-architecture (:architecture state) candidate)]
+        (if (seq (get-in child-view [:graph :nodes]))
+          (drilldown-scene state candidate)
+          state))
+      state)))
+
 (defn handle-mouse-released
-  [{:keys [scene scroll-y dragging-scrollbar? namespace-path] :as state} _]
+  [{:keys [dragging-scrollbar?] :as state} event]
   (if dragging-scrollbar?
     (assoc state :dragging-scrollbar? false :drag-offset nil)
-    (let [mx (double (q/mouse-x))
-          my (double (q/mouse-y))
-          world-my (+ my scroll-y)
-          hovered (hovered-module-position (:module-positions scene) mx world-my)
-          base-state (assoc state :dragging-scrollbar? false :drag-offset nil)]
-      (if hovered
-        (let [candidate (conj (or namespace-path []) (:module hovered))
-              child-view (view-architecture (:architecture state) candidate)]
-          (if (seq (get-in child-view [:graph :nodes]))
-            (drilldown-scene base-state candidate)
-            base-state))
-        base-state))))
+    (-> state
+        (assoc :dragging-scrollbar? false :drag-offset nil)
+        (apply-drilldown-click event))))
+
+(defn handle-mouse-clicked
+  [state event]
+  (if (:dragging-scrollbar? state)
+    state
+    (apply-drilldown-click state event)))
 
 (defn- namespace-segments
   [module]
@@ -511,8 +540,9 @@
        :mouse-wheel handle-mouse-wheel
        :mouse-pressed handle-mouse-pressed
        :mouse-dragged handle-mouse-dragged
+       :mouse-clicked handle-mouse-clicked
        :mouse-released handle-mouse-released
-       :middleware [m/fun-mode]))))
+        :middleware [m/fun-mode]))))
 
 (defn wait-until-closed!
   [sketch]
