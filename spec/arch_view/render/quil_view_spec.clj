@@ -32,6 +32,30 @@
                (set (map #(select-keys % [:from :to :arrowhead])
                          (:edge-drawables scene))))))
 
+  (it "staggers module label y positions when horizontal space is tight"
+    (let [architecture {:layout {:layers [{:index 0 :modules ["alpha.beta.long-module-one"
+                                                               "alpha.beta.long-module-two"
+                                                               "alpha.beta.long-module-three"]}]
+                                 :module->layer {"alpha.beta.long-module-one" 0
+                                                 "alpha.beta.long-module-two" 0
+                                                 "alpha.beta.long-module-three" 0}}
+                        :classified-edges #{}}
+          scene (sut/build-scene architecture {:canvas-width 260 :layer-height 120 :layer-gap 30})
+          ys (->> (:module-positions scene) (map :y) distinct sort vec)]
+      (should= [60.0 70.0] ys)))
+
+  (it "keeps module labels aligned when there is enough horizontal space"
+    (let [architecture {:layout {:layers [{:index 0 :modules ["alpha.beta.one"
+                                                               "alpha.beta.two"
+                                                               "alpha.beta.three"]}]
+                                 :module->layer {"alpha.beta.one" 0
+                                                 "alpha.beta.two" 0
+                                                 "alpha.beta.three" 0}}
+                        :classified-edges #{}}
+          scene (sut/build-scene architecture {:canvas-width 1400 :layer-height 120 :layer-gap 30})
+          ys (->> (:module-positions scene) (map :y) distinct sort vec)]
+      (should= [60] ys)))
+
   (it "computes arrowhead points in dependency direction"
     (let [right (sut/arrowhead-points 0 0 10 0 :standard)
           up (sut/arrowhead-points 0 10 0 0 :closed-triangle)]

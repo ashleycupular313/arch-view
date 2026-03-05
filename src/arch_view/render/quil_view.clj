@@ -25,7 +25,7 @@
                    {:module module
                     :layer layer-index
                     :x (* (inc idx) spacing)
-                   :y y})
+                    :y y})
                  modules)))
 
 (defn abbreviate-module-name
@@ -38,6 +38,40 @@
            "."
            last-part)
       module)))
+
+(defn- label-width
+  [label]
+  (* 7.0 (count (or label ""))))
+
+(defn- overlap?
+  [a b]
+  (< (Math/abs (double (- (:x a) (:x b))))
+     (/ (+ (label-width (:label a))
+           (label-width (:label b)))
+        2.0)))
+
+(defn- needs-stagger?
+  [modules]
+  (boolean
+    (some true?
+          (map overlap?
+               modules
+               (rest modules)))))
+
+(defn- stagger-offset
+  [idx]
+  (let [step 10.0]
+    (cond
+      (even? idx) 0.0
+      (odd? idx) step)))
+
+(defn- apply-layer-stagger
+  [modules]
+  (if (needs-stagger? modules)
+    (map-indexed (fn [idx m]
+                   (update m :y + (stagger-offset idx)))
+                 modules)
+    modules))
 
 (defn- arrowhead-for
   [edge-type]
@@ -66,10 +100,10 @@
                            layers)
          module-positions (->> layers
                                (mapcat (fn [{:keys [index modules]}]
-                                         (module-positions-for-layer index modules canvas-width layer-height layer-gap)))
-                               (map (fn [m]
-                                      (assoc m :label (abbreviate-module-name (:module m))))
-                               )
+                                         (->> (module-positions-for-layer index modules canvas-width layer-height layer-gap)
+                                              (map (fn [m]
+                                                     (assoc m :label (abbreviate-module-name (:module m)))))
+                                              apply-layer-stagger)))
                                vec)
          edge-drawables (->> (:classified-edges architecture)
                              (map (fn [{:keys [from to type]}]
@@ -161,7 +195,7 @@
 
 (defn- label-hitbox
   [{:keys [x y label]}]
-  (let [width (* 7.0 (count (or label "")))
+  (let [width (label-width label)
         half-w (/ width 2.0)
         half-h 7.0]
     {:left (- x half-w)
