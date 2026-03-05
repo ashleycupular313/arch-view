@@ -1,7 +1,6 @@
 (ns arch-view.render.quil-view
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [arch-view.layout.layers :as layers]
             [quil.core :as q]
             [quil.middleware :as m])
   (:import [javax.swing JFrame JEditorPane JScrollPane SwingUtilities]
@@ -256,9 +255,12 @@
     (draw-arrowhead sx sy tx ty arrowhead)))
 
 (defn- draw-edge
-  [points {:keys [from to from-point to-point arrowhead preserve-endpoints?]}]
-  (let [[x1 y1] (or from-point (let [{x :x y :y} (get points from)] [x y]))
-        [x2 y2] (or to-point (let [{x :x y :y} (get points to)] [x y]))]
+  [points {:keys [from to from-point to-point arrowhead preserve-endpoints? parallel-offset]}]
+  (let [offset (double (or parallel-offset 0.0))
+        [x1 y1] (or from-point (let [{x :x y :y} (get points from)] [x y]))
+        [x2 y2] (or to-point (let [{x :x y :y} (get points to)] [x y]))
+        x1 (+ (double x1) offset)
+        x2 (+ (double x2) offset)]
     (when (and x1 y1 x2 y2)
       (if preserve-endpoints?
         (let [[ex ey] (edge-line-endpoint x1 y1 x2 y2 arrowhead)]
@@ -358,6 +360,39 @@
                    vec)
     :between-layers (layer-edge-drawables scene)
     (:edge-drawables scene)))
+
+(defn apply-parallel-arrow-spacing
+  [edge-drawables points]
+  (letfn [(base-points [{:keys [from to from-point to-point]}]
+            (let [[x1 y1] (or from-point (let [{x :x y :y} (get points from)] [x y]))
+                  [x2 y2] (or to-point (let [{x :x y :y} (get points to)] [x y]))]
+              [x1 y1 x2 y2]))
+          (span [edge]
+            (let [[_ y1 _ y2] (base-points edge)]
+              [(min y1 y2) (max y1 y2)]))
+          (assign-lane [lanes edge]
+            (let [[start end] (span edge)
+                  lane-idx (or (first (keep-indexed (fn [idx lane-end]
+                                                      (when (<= lane-end start) idx))
+                                                    lanes))
+                               (count lanes))]
+              (if (< lane-idx (count lanes))
+                {:lane lane-idx :lanes (assoc lanes lane-idx end)}
+                {:lane lane-idx :lanes (conj lanes end)})))
+          (offset-for-lane [lane lane-count]
+            (* 15.0 (- lane (/ (dec lane-count) 2.0))))]
+    (let [{:keys [edges max-lane]}
+          (reduce (fn [{:keys [lanes edges max-lane]} edge]
+                    (let [{:keys [lane lanes]} (assign-lane lanes edge)]
+                      {:lanes lanes
+                       :edges (conj edges (assoc edge :lane lane))
+                       :max-lane (max max-lane lane)}))
+                  {:lanes [] :edges [] :max-lane -1}
+                  edge-drawables)
+          lane-count (inc (max 0 max-lane))]
+      (mapv (fn [{:keys [lane] :as edge}]
+              (assoc edge :parallel-offset (offset-for-lane lane lane-count)))
+            edges))))
 
 (defn- label-hitbox
   [{:keys [x y] :as module-position}]
@@ -481,8 +516,11 @@
     (q/text-align :center :center)
     (q/text (rendered-label module-position) x y))
   (let [points (module-point-map scene)
-        edge-drawables (declutter-edge-drawables scene declutter-mode)]
-    (doseq [edge edge-drawables]
+        edge-drawables (declutter-edge-drawables scene declutter-mode)
+        spaced-edges (if (= :between-layers declutter-mode)
+                       edge-drawables
+                       (apply-parallel-arrow-spacing edge-drawables points))]
+    (doseq [edge spaced-edges]
       (draw-edge points edge))))
 
 (defn- draw-toolbar
@@ -761,8 +799,11 @@
        (= prefix (subvec parts 0 (count prefix)))))
 
 (defn- namespace-layout
-  [nodes]
-  (let [ordered (vec (sort nodes))
+  [nodes edges]
+  (let [incoming (frequencies (map :to edges))
+        ordered (->> nodes
+                     (sort-by (juxt #(get incoming % 0) str))
+                     vec)
         layers (mapv (fn [idx module]
                        {:index idx
                         :modules [module]})
@@ -848,7 +889,7 @@
                :edges (set (for [{:keys [from to]} classified-edges]
                              {:from from :to to}))
                :abstract-modules (set (for [[n k] module->kind :when (= k :abstract)] n))}
-        layout (namespace-layout nodes)
+        layout (namespace-layout nodes classified-edges)
         layer->label (into {}
                            (for [[module idx] (:module->layer layout)]
                              [idx (or (get module->display-label module) module)]))]

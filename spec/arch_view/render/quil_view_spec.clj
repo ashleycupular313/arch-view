@@ -222,12 +222,24 @@
                         :classified-edges #{{:from "empire.ui" :to "empire.acceptance" :type :direct}}}
           root-view (sut/view-architecture architecture [])
           scene (sut/build-scene root-view)]
-      (should= ["acceptance" "application" "ui"]
+      (should= ["application" "ui" "acceptance"]
                (mapv :label (:layer-rects scene)))
-      (should= [0 1 2]
+      (should= [2 0 1]
                (->> (:module-positions scene)
                     (sort-by :module)
                     (mapv :layer)))))
+
+  (it "applies 15px parallel spacing to overlapping non-layer edges"
+    (let [points {"a" {:x 200.0 :y 60.0}
+                  "b" {:x 200.0 :y 300.0}
+                  "c" {:x 200.0 :y 120.0}
+                  "d" {:x 200.0 :y 360.0}}
+          edges [{:from "a" :to "b" :type :direct :arrowhead :standard}
+                 {:from "c" :to "d" :type :direct :arrowhead :standard}]
+          spaced (sut/apply-parallel-arrow-spacing edges points)
+          [e1 e2] spaced]
+      (should= 2 (count spaced))
+      (should= 15.0 (Math/abs (- (:parallel-offset e1) (:parallel-offset e2))))))
 
   (it "cycles declutter modes across all four states"
     (should= :concrete (sut/next-declutter-mode :all))
