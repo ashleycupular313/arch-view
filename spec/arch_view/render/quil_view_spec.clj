@@ -14,12 +14,14 @@
       (should= [{:index 0 :x 0 :y 0 :width 1000 :height 120}
                 {:index 1 :x 0 :y 150 :width 1000 :height 120}
                 {:index 2 :x 0 :y 300 :width 1000 :height 120}]
-               (:layer-rects scene))
+               (mapv #(dissoc % :label) (:layer-rects scene)))
       (should= ["a" "c"]
                (->> (:module-positions scene)
                     (filter #(= 2 (:layer %)))
                     (sort-by :x)
                     (mapv :module)))
+      (should= ["layer-0" "layer-1" "layer-2"]
+               (mapv :label (:layer-rects scene)))
       (should= #{{:from "a" :to "b" :arrowhead :standard}
                  {:from "c" :to "d" :arrowhead :closed-triangle}}
                (set (map #(select-keys % [:from :to :arrowhead])

@@ -5,6 +5,7 @@
             [arch-view.input.dependency-extract :as extract]
             [arch-view.layout.layers :as layers]
             [arch-view.model.classify :as classify]
+            [arch-view.model.components :as components]
             [arch-view.render.quil-view :as render]))
 
 (defn load-architecture
@@ -13,12 +14,15 @@
         guidance (checker/read-guidance guidance-path)
         source-paths (or (:source-paths guidance) ["src"])
         graph (extract/build-module-graph project-path source-paths)
+        module->component (components/assign-components guidance (:nodes graph))
         layout (layers/assign-layers graph)
         classified-edges (classify/classify-edges guidance graph)
         scene (render/build-scene {:layout layout
-                                   :classified-edges classified-edges})]
+                                   :classified-edges classified-edges
+                                   :module->component module->component})]
     {:guidance guidance
      :graph graph
+     :module->component module->component
      :layout layout
      :classified-edges classified-edges
      :scene scene}))

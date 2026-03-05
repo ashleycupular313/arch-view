@@ -6,6 +6,15 @@
   [index layer-height layer-gap]
   (* index (+ layer-height layer-gap)))
 
+(defn- dominant-component
+  [modules module->component]
+  (->> modules
+       (map module->component)
+       (remove nil?)
+       frequencies
+       (sort-by (juxt (comp - val) (comp str key)))
+       ffirst))
+
 (defn- module-positions-for-layer
   [layer-index modules canvas-width layer-height layer-gap]
   (let [count-modules (count modules)
@@ -30,12 +39,18 @@
   ([architecture {:keys [canvas-width layer-height layer-gap]
                   :or {canvas-width 1200 layer-height 140 layer-gap 24}}]
    (let [layers (get-in architecture [:layout :layers])
+         module->component (or (:module->component architecture) {})
          layer-rects (mapv (fn [{:keys [index]}]
-                             {:index index
-                              :x 0
-                              :y (layer-y index layer-height layer-gap)
-                              :width canvas-width
-                              :height layer-height})
+                             (let [modules (get-in architecture [:layout :layers index :modules])
+                                   component (dominant-component modules module->component)]
+                               {:index index
+                                :x 0
+                                :y (layer-y index layer-height layer-gap)
+                                :width canvas-width
+                                :height layer-height
+                                :label (if component
+                                         (name component)
+                                         (str "layer-" index))}))
                            layers)
          module-positions (->> layers
                                (mapcat (fn [{:keys [index modules]}]
@@ -80,10 +95,13 @@
 (defn- draw-scene
   [scene]
   (q/background 250 250 250)
-  (doseq [{:keys [x y width height]} (:layer-rects scene)]
+  (doseq [{:keys [x y width height label]} (:layer-rects scene)]
     (q/fill 225 233 242)
     (q/stroke 120 140 160)
-    (q/rect x y width height))
+    (q/rect x y width height)
+    (q/fill 45 60 80)
+    (q/text-align :left :top)
+    (q/text label (+ x 8) (+ y 6)))
   (doseq [{:keys [x y module]} (:module-positions scene)]
     (q/fill 15 20 30)
     (q/no-stroke)
