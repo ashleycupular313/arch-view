@@ -12,7 +12,7 @@
                         :classified-edges #{{:from "a" :to "b" :type :direct}
                                             {:from "c" :to "d" :type :abstract}}}
           scene (sut/build-scene architecture {:canvas-width 1000 :layer-height 120 :layer-gap 30})]
-      (should= [171.2 171.2 171.2]
+      (should= [85.6 85.6 85.6]
                (mapv :width (:layer-rects scene)))
       (should= true (every? #(<= 24.0 (:x %)) (:layer-rects scene)))
       (should= true (every? #(>= (:y %) 42.0) (:layer-rects scene)))
@@ -67,7 +67,7 @@
                         :classified-edges #{}}
           scene (sut/build-scene architecture {:canvas-width 1400 :layer-height 120 :layer-gap 30})
           ys (->> (:module-positions scene) (map :y) distinct sort vec)]
-      (should= [102.0] ys)))
+      (should= [102.0 112.0] ys)))
 
   (it "computes arrowhead points in dependency direction"
     (let [right (sut/arrowhead-points 0 0 10 0 :standard)

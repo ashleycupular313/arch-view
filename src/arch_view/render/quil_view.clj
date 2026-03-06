@@ -334,16 +334,24 @@
          module->source-file (or (:module->source-file architecture) {})
          module->full-name (or (:module->full-name architecture) {})
          module->display-label (or (:module->display-label architecture) {})
+         rect-scale 0.5
+         rect-height (* rect-scale layer-height)
+         track-width (track-width-for canvas-width)
+         rect-width (* rect-scale track-width)
+         rect-x-offset (/ (- track-width rect-width) 2.0)
+         rect-y-offset (/ (- layer-height rect-height) 2.0)
          layer-rects (mapv (fn [{:keys [index]}]
                              (let [modules (get-in architecture [:layout :layers index :modules])
                                    component (dominant-component modules module->component)
                                    abstract-layer? (boolean (some #(= :abstract (get module->kind %))
                                                                   modules))]
                                {:index index
-                                :x (track-x-for (get-in placement-by-layer-index [index :track] 0) canvas-width)
-                                :y (layer-y (get-in placement-by-layer-index [index :row] index) layer-height layer-gap)
-                                :width (track-width-for canvas-width)
-                                :height layer-height
+                                :x (+ (track-x-for (get-in placement-by-layer-index [index :track] 0) canvas-width)
+                                      rect-x-offset)
+                                :y (+ (layer-y (get-in placement-by-layer-index [index :row] index) layer-height layer-gap)
+                                      rect-y-offset)
+                                :width rect-width
+                                :height rect-height
                                 :abstract? abstract-layer?
                                 :full-name (some-> modules first module->full-name strip-top-namespace)
                                 :label (or (get layer->label index)
@@ -881,11 +889,10 @@
 
 (defn- place-non-overlapping-path
   [path-points edge placed-segments]
-  (or (first (filter (fn [candidate]
-                       (and (path-clear-of-rectangles? candidate edge)
-                            (not (path-overlaps-existing? candidate placed-segments))))
-                     (sidestep-candidates path-points)))
-      path-points))
+  (first (filter (fn [candidate]
+                   (and (path-clear-of-rectangles? candidate edge)
+                        (not (path-overlaps-existing? candidate placed-segments))))
+                 (sidestep-candidates path-points))))
 
 (defn- draw-edge
   [points bounds {:keys [arrowhead preserve-endpoints?] :as edge}]
@@ -1369,13 +1376,18 @@
         (if (empty? remaining)
           placed
           (let [edge (first remaining)
-                base-path (or (:points (resolved-edge-path points route-bounds edge))
-                              [])
+                base-path (or (:points (resolved-edge-path points route-bounds edge)) [])
                 route-points (place-non-overlapping-path base-path edge placed-segments)
-                edge' (assoc edge :route-points route-points :anchored? (boolean (or (:from-rect edge) (:to-rect edge))))]
-            (recur (rest remaining)
-                   (conj placed edge')
-                   (into placed-segments (path-segments route-points)))))))))
+                edge' (assoc edge
+                             :route-points route-points
+                             :anchored? (boolean (or (:from-rect edge) (:to-rect edge))))]
+            (if (seq route-points)
+              (recur (rest remaining)
+                     (conj placed edge')
+                     (into placed-segments (path-segments route-points)))
+              (recur (rest remaining)
+                     placed
+                     placed-segments))))))))
 
 (defn- draw-toolbar
   [{:keys [namespace-path declutter-mode nav-stack]}]
