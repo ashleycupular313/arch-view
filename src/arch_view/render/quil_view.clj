@@ -778,7 +778,9 @@
                    (enforce-source-perpendicular from-side)
                    (enforce-target-perpendicular to-side)
                    orthogonalize-path)
-       :anchored? anchored?}
+       :anchored? anchored?
+       :from-side from-side
+       :to-side to-side}
       (let [ignored (cond-> #{}
                       (:from-rect edge) (conj (:from-rect edge))
                       (:to-rect edge) (conj (:to-rect edge)))
@@ -794,7 +796,9 @@
                      (enforce-source-perpendicular from-side)
                      (enforce-target-perpendicular to-side)
                      orthogonalize-path)
-         :anchored? anchored?}))))
+         :anchored? anchored?
+         :from-side from-side
+         :to-side to-side}))))
 
 (def ^:private min-sidestep 10.0)
 
@@ -864,28 +868,48 @@
            vec
            orthogonalize-path))))
 
-(defn- dominant-axis
-  [path-points]
-  (let [[sx sy] (first path-points)
-        [tx ty] (last path-points)]
-    (if (>= (Math/abs (- (double tx) (double sx)))
-            (Math/abs (- (double ty) (double sy))))
-      :x
-      :y)))
-
 (defn- sidestep-candidates
   [path-points]
-  (let [axis (dominant-axis path-points)
-        steps (mapcat (fn [n]
+  (let [steps (mapcat (fn [n]
                         [(* min-sidestep n)
                          (* -1.0 min-sidestep n)])
                       (range 1 40))
-        base [path-points]]
-    (into base
-          (for [step steps]
-            (if (= axis :x)
-              (nudge-path path-points 0.0 step)
-              (nudge-path path-points step 0.0))))))
+        base [path-points]
+        y-nudges (for [step steps]
+                   (nudge-path path-points 0.0 step))
+        x-nudges (for [step steps]
+                   (nudge-path path-points step 0.0))]
+    (vec (concat base y-nudges x-nudges))))
+
+(defn- non-zero-segments
+  [path-points]
+  (->> (path-segments path-points)
+       (filter (fn [[[x1 y1] [x2 y2]]]
+                 (> (+ (Math/abs (- (double x2) (double x1)))
+                       (Math/abs (- (double y2) (double y1))))
+                    0.1)))
+       vec))
+
+(defn- normalize-route-endpoints
+  [path-points {:keys [from-rect to-rect from-side to-side]}]
+  (if (< (count path-points) 2)
+    (vec path-points)
+    (let [with-source (if from-rect
+                        (let [[nx ny] (second path-points)
+                              source-anchor (:point (rect-edge-anchor from-rect nx ny))]
+                          (assoc (vec path-points) 0 source-anchor))
+                        (vec path-points))
+          with-target (if to-rect
+                        (let [count-points (count with-source)
+                              [px py] (nth with-source (- count-points 2))
+                              target-anchor (:point (rect-edge-anchor to-rect px py))]
+                          (assoc with-source (dec count-points) target-anchor))
+                        with-source)]
+      (-> with-target
+          (enforce-source-perpendicular from-side)
+          (enforce-target-perpendicular to-side)
+          orthogonalize-path
+          compact-points))))
 
 (defn- place-non-overlapping-path
   [path-points edge placed-segments]
@@ -902,21 +926,22 @@
                     (:anchored? edge)
                     (boolean (or (:from-rect edge) (:to-rect edge))))]
     (when (seq path-points)
-      (let [segments (map vector path-points (rest path-points))
-            [from-p to-p] (last segments)
-            [x1 y1] from-p
-            [x2 y2] to-p]
-        (if (and (= 1 (count segments)) (not preserve-endpoints?))
-          (draw-arrow-between-points x1 y1 x2 y2 arrowhead (not anchored?))
-          (do
-            (if (= :closed-triangle arrowhead)
-              (q/stroke 0 128 0)
-              (q/stroke 0 0 0))
-            (doseq [[[sx sy] [tx ty]] (butlast segments)]
-              (q/line sx sy tx ty))
-            (let [[ex ey] (edge-line-endpoint x1 y1 x2 y2 arrowhead)]
-              (q/line x1 y1 ex ey)
-              (draw-arrowhead x1 y1 x2 y2 arrowhead))))))))
+      (let [segments (non-zero-segments path-points)
+            [from-p to-p] (last segments)]
+        (when (and from-p to-p)
+          (let [[x1 y1] from-p
+                [x2 y2] to-p]
+            (if (and (= 1 (count segments)) (not preserve-endpoints?))
+              (draw-arrow-between-points x1 y1 x2 y2 arrowhead (not anchored?))
+              (do
+                (if (= :closed-triangle arrowhead)
+                  (q/stroke 0 128 0)
+                  (q/stroke 0 0 0))
+                (doseq [[[sx sy] [tx ty]] (butlast segments)]
+                  (q/line sx sy tx ty))
+                (let [[ex ey] (edge-line-endpoint x1 y1 x2 y2 arrowhead)]
+                  (q/line x1 y1 ex ey)
+                  (draw-arrowhead x1 y1 x2 y2 arrowhead))))))))))
 
 (defn layer-edge-drawables
   [scene]
@@ -1373,13 +1398,17 @@
       (loop [remaining spaced
              placed []
              placed-segments []]
-            (if (empty? remaining)
-              placed
-              (let [edge (first remaining)
-                    base-path (or (:points (resolved-edge-path points route-bounds edge)) [])
-                    route-points (place-non-overlapping-path base-path edge placed-segments)
-                    final-path (if (seq route-points) route-points base-path)
-                    edge' (assoc edge
+        (if (empty? remaining)
+          placed
+          (let [edge (first remaining)
+                routed (resolved-edge-path points route-bounds edge)
+                edge+ (merge edge routed)
+                base-path (normalize-route-endpoints (or (:points routed) []) edge+)
+                route-candidate (place-non-overlapping-path base-path edge+ placed-segments)
+                route-points (when (seq route-candidate)
+                               (normalize-route-endpoints route-candidate edge+))
+                final-path (if (seq route-points) route-points base-path)
+                edge' (assoc edge
                              :route-points final-path
                              :anchored? (boolean (or (:from-rect edge) (:to-rect edge))))]
             (if (seq final-path)
