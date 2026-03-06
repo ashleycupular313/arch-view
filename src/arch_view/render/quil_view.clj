@@ -535,17 +535,107 @@
     (when (and x1 y1 x2 y2)
       {:x1 x1 :y1 y1 :x2 x2 :y2 y2 :anchored? anchored?})))
 
+(defn- point-in-rect?
+  [{:keys [x y width height]} px py]
+  (and (<= x px (+ x width))
+       (<= y py (+ y height))))
+
+(defn- turn-orientation
+  [ax ay bx by cx cy]
+  (let [v (- (* (- by ay) (- cx bx))
+             (* (- bx ax) (- cy by)))]
+    (cond
+      (> v 0.0) 1
+      (< v 0.0) -1
+      :else 0)))
+
+(defn- on-segment?
+  [ax ay bx by px py]
+  (and (<= (min ax bx) px (max ax bx))
+       (<= (min ay by) py (max ay by))))
+
+(defn- segments-intersect?
+  [ax ay bx by cx cy dx dy]
+  (let [o1 (turn-orientation ax ay bx by cx cy)
+        o2 (turn-orientation ax ay bx by dx dy)
+        o3 (turn-orientation cx cy dx dy ax ay)
+        o4 (turn-orientation cx cy dx dy bx by)]
+    (or (and (not= o1 o2) (not= o3 o4))
+        (and (zero? o1) (on-segment? ax ay bx by cx cy))
+        (and (zero? o2) (on-segment? ax ay bx by dx dy))
+        (and (zero? o3) (on-segment? cx cy dx dy ax ay))
+        (and (zero? o4) (on-segment? cx cy dx dy bx by)))))
+
+(defn- segment-intersects-rect?
+  [x1 y1 x2 y2 {:keys [x y width height] :as rect}]
+  (let [right (+ x width)
+        bottom (+ y height)]
+    (or (point-in-rect? rect x1 y1)
+        (point-in-rect? rect x2 y2)
+        (segments-intersect? x1 y1 x2 y2 x y right y)
+        (segments-intersect? x1 y1 x2 y2 right y right bottom)
+        (segments-intersect? x1 y1 x2 y2 right bottom x bottom)
+        (segments-intersect? x1 y1 x2 y2 x bottom x y))))
+
+(defn- needs-rectilinear-route?
+  [x1 y1 x2 y2 {:keys [all-rects from-rect to-rect]}]
+  (let [dx (Math/abs (double (- x2 x1)))
+        dy (Math/abs (double (- y2 y1)))
+        long-edge? (> (+ dx dy) 280.0)
+        crosses? (some (fn [rect]
+                         (and (not= rect from-rect)
+                              (not= rect to-rect)
+                              (segment-intersects-rect? x1 y1 x2 y2 rect)))
+                       all-rects)]
+    (and long-edge? crosses?)))
+
+(defn- compact-points
+  [points]
+  (reduce (fn [acc [x y :as p]]
+            (if-let [[px py] (peek acc)]
+              (if (< (+ (Math/abs (- (double x) (double px)))
+                        (Math/abs (- (double y) (double py))))
+                     0.1)
+                acc
+                (conj acc p))
+              (conj acc p)))
+          []
+          points))
+
+(defn- resolved-edge-path
+  [points bounds edge]
+  (when-let [{:keys [x1 y1 x2 y2 anchored?]} (resolved-edge-segment points bounds edge)]
+    (if-not (needs-rectilinear-route? x1 y1 x2 y2 edge)
+      {:points [[x1 y1] [x2 y2]] :anchored? anchored?}
+      (let [dx (- (double x2) (double x1))
+            dy (- (double y2) (double y1))
+            step-x (clamp-between (+ x1 (* 0.22 dx)) (:min-x bounds) (:max-x bounds))
+            step-y (clamp-between (+ y1 (* 0.22 dy)) (:min-y bounds) (:max-y bounds))
+            dogleg-y (clamp-between step-y (:min-y bounds) (:max-y bounds))
+            p1 [step-x step-y]
+            p2 [x2 dogleg-y]
+            p3 [x2 y2]]
+        {:points (compact-points [[x1 y1] p1 p2 p3])
+         :anchored? anchored?}))))
+
 (defn- draw-edge
   [points bounds {:keys [arrowhead preserve-endpoints?] :as edge}]
-  (when-let [{:keys [x1 y1 x2 y2 anchored?]} (resolved-edge-segment points bounds edge)]
-    (if preserve-endpoints?
-      (let [[ex ey] (edge-line-endpoint x1 y1 x2 y2 arrowhead)]
-        (if (= :closed-triangle arrowhead)
-          (q/stroke 0 128 0)
-          (q/stroke 0 0 0))
-        (q/line x1 y1 ex ey)
-        (draw-arrowhead x1 y1 x2 y2 arrowhead))
-      (draw-arrow-between-points x1 y1 x2 y2 arrowhead (not anchored?)))))
+  (when-let [{:keys [points anchored?]} (resolved-edge-path points bounds edge)]
+    (let [segments (map vector points (rest points))
+          [from-p to-p] (last segments)
+          [x1 y1] from-p
+          [x2 y2] to-p]
+      (if (and (= 1 (count segments)) (not preserve-endpoints?))
+        (draw-arrow-between-points x1 y1 x2 y2 arrowhead (not anchored?))
+        (do
+          (if (= :closed-triangle arrowhead)
+            (q/stroke 0 128 0)
+            (q/stroke 0 0 0))
+          (doseq [[[sx sy] [tx ty]] (butlast segments)]
+            (q/line sx sy tx ty))
+          (let [[ex ey] (edge-line-endpoint x1 y1 x2 y2 arrowhead)]
+            (q/line x1 y1 ex ey)
+            (draw-arrowhead x1 y1 x2 y2 arrowhead)))))))
 
 (defn layer-edge-drawables
   [scene]
@@ -908,11 +998,6 @@
        :width 8.0
        :height thumb-height})))
 
-(defn- point-in-rect?
-  [{:keys [x y width height]} px py]
-  (and (<= x px (+ x width))
-       (<= y py (+ y height))))
-
 (defn- content-height-for-scene
   [scene]
   (->> (:layer-rects scene)
@@ -991,7 +1076,8 @@
                                                      (get module->layer to))]
                                       (assoc edge
                                              :from-rect (get layer-rect-by-index from-layer)
-                                             :to-rect (get layer-rect-by-index to-layer))))))]
+                                             :to-rect (get layer-rect-by-index to-layer)
+                                             :all-rects (:layer-rects scene))))))]
     (apply-parallel-arrow-spacing edge-drawables points)))
 
 (defn- draw-toolbar
@@ -1054,14 +1140,20 @@
   ([spaced-edges points bounds mx my tolerance]
    (->> spaced-edges
         (map (fn [edge]
-               (when-let [{:keys [x1 y1 x2 y2]} (resolved-edge-segment points bounds edge)]
-                 (let [dx (Math/abs (double (- x2 x1)))
-                       dy (Math/abs (double (- y2 y1)))
-                       diagonal? (and (> dx 1.0) (> dy 1.0))
-                       tol (* (double tolerance) (if diagonal? 0.6 1.0))]
+               (when-let [{path-points :points} (resolved-edge-path points bounds edge)]
+                 (let [segments (map vector path-points (rest path-points))
+                       segment-info (map (fn [[[x1 y1] [x2 y2]]]
+                                           (let [dx (Math/abs (double (- x2 x1)))
+                                                 dy (Math/abs (double (- y2 y1)))
+                                                 diagonal? (and (> dx 1.0) (> dy 1.0))
+                                                 tol (* (double tolerance) (if diagonal? 0.6 1.0))
+                                                 dist (point->segment-distance mx my x1 y1 x2 y2)]
+                                             {:tol tol :dist dist}))
+                                         segments)
+                       best (first (sort-by :dist segment-info))]
                    (assoc edge
-                          :hover-tolerance tol
-                          :distance (point->segment-distance mx my x1 y1 x2 y2))))))
+                          :hover-tolerance (:tol best)
+                          :distance (:dist best))))))
         (remove nil?)
         (filter #(<= (double (:distance %)) (double (:hover-tolerance %))))
         (sort-by :distance)
