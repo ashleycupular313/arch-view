@@ -238,6 +238,13 @@
                                      (if upward? 18.0 0.0))))
                               0.0
                               (concat outgoing incoming))
+                      upward-count (count (filter true?
+                                                  (map (fn [[{other-row :row} as-from?]]
+                                                         (if as-from?
+                                                           (< other-row row)
+                                                           (< row other-row)))
+                                                       (concat outgoing incoming))))
+                      upward-cost (* 140.0 (double upward-count))
                       candidate-placement {:row row :track track}
                       placement* (assoc placement idx candidate-placement)
                       placed-edges (->> pairs
@@ -255,7 +262,7 @@
                                                   :when (edge-cross? placement* new-edge placed-edge)]
                                               true))
                       crossing-cost (* 180.0 (double crossing-count))]
-                  (+ edge-shape-cost crossing-cost)))
+                  (+ edge-shape-cost upward-cost crossing-cost)))
               best (reduce (fn [best candidate]
                              (let [height-cost (* 100.0 (:row candidate))
                                    score (+ height-cost (connection-cost candidate))]

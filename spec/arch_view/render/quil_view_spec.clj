@@ -122,6 +122,11 @@
       (should= 1 (#'sut/edge-crossing-count placement crossing))
       (should= 0 (#'sut/edge-crossing-count placement non-crossing))))
 
+  (it "avoids upward placement for simple dependencies"
+    (let [slots (#'sut/assign-layer-slots [0 1] [[0 1]])]
+      (should= true (<= (get-in slots [0 :row])
+                        (get-in slots [1 :row])))))
+
   (it "finds hovered module by label hitbox"
     (let [modules [{:module "alpha.beta.core"
                     :label "a.b.core"
