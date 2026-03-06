@@ -550,8 +550,8 @@
     (let [rect {:x 10.0 :y 20.0 :width 100.0 :height 60.0}
           right-top (#'sut/rect-edge-anchor rect 500.0 20.0)
           top-left (#'sut/rect-edge-anchor rect 10.0 -100.0)]
-      (should= [110.0 28.0] (:point right-top))
-      (should= [18.0 20.0] (:point top-left))))
+      (should= [110.0 30.0] (:point right-top))
+      (should= [20.0 20.0] (:point top-left))))
 
   (it "cycles view modes across four states"
     (should= :abstract (sut/next-declutter-mode :all))

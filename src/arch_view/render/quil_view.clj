@@ -477,7 +477,7 @@
   (let [[cx cy] (rect-center rect)
         dx (- tx cx)
         dy (- ty cy)
-        corner-inset 8.0
+        corner-inset 10.0
         x-lo (+ x corner-inset)
         x-hi (- (+ x width) corner-inset)
         y-lo (+ y corner-inset)
@@ -499,7 +499,7 @@
 (defn- apply-edge-constrained-offset
   [[x y] side rect offset-x offset-y]
   (let [{rx :x ry :y rw :width rh :height} rect
-        corner-inset 8.0
+        corner-inset 10.0
         rx-lo (+ rx corner-inset)
         rx-hi (- (+ rx rw) corner-inset)
         ry-lo (+ ry corner-inset)
@@ -749,10 +749,16 @@
 
 (defn- nudge-path
   [path-points dx dy]
-  (mapv (fn [[x y]]
-          [(+ (double x) (double dx))
-           (+ (double y) (double dy))])
-        path-points))
+  (let [count-points (count path-points)]
+    (if (<= count-points 2)
+      (vec path-points)
+      (->> path-points
+           (map-indexed (fn [idx [x y]]
+                          (if (or (zero? idx) (= idx (dec count-points)))
+                            [x y]
+                            [(+ (double x) (double dx))
+                             (+ (double y) (double dy))])))
+           vec))))
 
 (defn- dominant-axis
   [path-points]
