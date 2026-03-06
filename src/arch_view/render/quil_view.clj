@@ -66,11 +66,11 @@
   (or display-label label))
 
 (def ^:private toolbar-height 38.0)
-(def ^:private back-button-width 230.0)
+(def ^:private back-button-width 360.0)
 (def ^:private declutter-button-width 240.0)
 (def ^:private button-height 26.0)
 
-(def declutter-modes [:all :concrete :abstract])
+(def declutter-modes [:all :abstract :concrete :layer])
 
 (defn next-declutter-mode
   [mode]
@@ -82,9 +82,10 @@
 (defn declutter-label
   [mode]
   (case mode
-    :concrete "Declutter: Concrete"
-    :abstract "Declutter: Abstract"
-    "Declutter: All"))
+    :abstract "View: Abstract"
+    :concrete "View: Concrete"
+    :layer "View: Layer"
+    "View: All"))
 
 (defn- back-button-label
   [{:keys [namespace-path nav-stack]}]
@@ -103,7 +104,8 @@
 
 (defn- declutter-button-rect
   []
-  {:x 100.0 :y 6.0 :width declutter-button-width :height button-height})
+  (let [{:keys [x width]} (back-button-rect)]
+    {:x (+ x width 10.0) :y 6.0 :width declutter-button-width :height button-height}))
 
 (defn- overlap?
   [a b]
@@ -668,6 +670,7 @@
     :abstract (->> (:edge-drawables scene)
                    (filter #(= :abstract (:type %)))
                    vec)
+    :layer (layer-edge-drawables scene)
     (:edge-drawables scene)))
 
 (defn apply-parallel-arrow-spacing
