@@ -913,15 +913,19 @@
 
 (defn- place-non-overlapping-path
   [path-points edge placed-segments]
-  (first (filter (fn [candidate]
-                   (and (path-clear-of-rectangles? candidate edge)
-                        (not (path-overlaps-existing? candidate placed-segments))))
-                 (sidestep-candidates path-points))))
+  (first (keep (fn [candidate]
+                 (let [normalized (normalize-route-endpoints candidate edge)]
+                   (when (and (path-clear-of-rectangles? normalized edge)
+                              (not (path-overlaps-existing? normalized placed-segments)))
+                     normalized)))
+               (sidestep-candidates path-points))))
 
 (defn- draw-edge
   [points bounds {:keys [arrowhead preserve-endpoints?] :as edge}]
-  (let [path-points (or (:route-points edge)
+  (let [path-points (normalize-route-endpoints
+                     (or (:route-points edge)
                         (:points (resolved-edge-path points bounds edge)))
+                     edge)
         anchored? (if (contains? edge :anchored?)
                     (:anchored? edge)
                     (boolean (or (:from-rect edge) (:to-rect edge))))]
@@ -1404,9 +1408,7 @@
                 routed (resolved-edge-path points route-bounds edge)
                 edge+ (merge edge routed)
                 base-path (normalize-route-endpoints (or (:points routed) []) edge+)
-                route-candidate (place-non-overlapping-path base-path edge+ placed-segments)
-                route-points (when (seq route-candidate)
-                               (normalize-route-endpoints route-candidate edge+))
+                route-points (place-non-overlapping-path base-path edge+ placed-segments)
                 final-path (if (seq route-points) route-points base-path)
                 edge' (assoc edge
                              :route-points final-path
