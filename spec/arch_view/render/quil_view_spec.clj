@@ -469,6 +469,22 @@
         (should= 110.0 x1)
         (should= 300.0 x2))))
 
+  (it "biases near-horizontal target anchors downward by one quarter of target height"
+    (let [from-rect {:x 10.0 :y 20.0 :width 100.0 :height 60.0}
+          to-rect {:x 300.0 :y 20.0 :width 120.0 :height 80.0}
+          edge {:from "a"
+                :to "b"
+                :from-rect from-rect
+                :to-rect to-rect
+                :arrowhead :standard}
+          points {"a" {:x 50.0 :y 50.0}
+                  "b" {:x 350.0 :y 50.0}}
+          seg (#'sut/resolved-edge-segment points {:min-x 0.0 :max-x 1000.0 :min-y 0.0 :max-y 1000.0} edge)]
+      (should= 110.0 (:x1 seg))
+      (should= 300.0 (:x2 seg))
+      (should= 50.0 (:y1 seg))
+      (should= 70.0 (:y2 seg))))
+
   (it "avoids anchoring on rectangle corners for orthogonal arrows"
     (let [rect {:x 10.0 :y 20.0 :width 100.0 :height 60.0}
           right-top (#'sut/rect-edge-anchor rect 500.0 20.0)
