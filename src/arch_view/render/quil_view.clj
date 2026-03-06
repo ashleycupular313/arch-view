@@ -533,7 +533,13 @@
                   [(+ (double x2) offset-x) (+ (double y2) offset-y)])
         anchored? (or from-rect to-rect)]
     (when (and x1 y1 x2 y2)
-      {:x1 x1 :y1 y1 :x2 x2 :y2 y2 :anchored? anchored?})))
+      {:x1 x1
+       :y1 y1
+       :x2 x2
+       :y2 y2
+       :anchored? anchored?
+       :from-side (:side from-anchor)
+       :to-side (:side to-anchor)})))
 
 (defn- point-in-rect?
   [{:keys [x y width height]} px py]
@@ -577,6 +583,48 @@
         (segments-intersect? x1 y1 x2 y2 right bottom x bottom)
         (segments-intersect? x1 y1 x2 y2 x bottom x y))))
 
+(defn- segment-intersects-any-rect?
+  [x1 y1 x2 y2 rects ignored]
+  (some (fn [rect]
+          (and (not (contains? ignored rect))
+               (segment-intersects-rect? x1 y1 x2 y2 rect)))
+        rects))
+
+(defn- clear-vertical-column?
+  [x y1 y2 rects ignored]
+  (not (segment-intersects-any-rect? x y1 x y2 rects ignored)))
+
+(defn- choose-route-column
+  [x1 y1 x2 y2 {:keys [all-rects from-rect to-rect]} bounds]
+  (let [ignored (cond-> #{}
+                  from-rect (conj from-rect)
+                  to-rect (conj to-rect))
+        candidates (->> (concat
+                          [x1 x2 (/ (+ x1 x2) 2.0)]
+                          (mapcat (fn [{:keys [x width]}]
+                                    [(double (- x 12.0))
+                                     (double (+ x width 12.0))])
+                                  all-rects))
+                        (map #(clamp-between % (:min-x bounds) (:max-x bounds)))
+                        distinct
+                        vec)
+        clear (filter #(clear-vertical-column? % y1 y2 all-rects ignored) candidates)]
+    (or (first (sort-by #(Math/abs (- (double %) (/ (+ x1 x2) 2.0))) clear))
+        (clamp-between (/ (+ x1 x2) 2.0) (:min-x bounds) (:max-x bounds)))))
+
+(defn- source-exit-point
+  [x1 y1 x2 y2 from-side bounds]
+  (let [step 20.0
+        dx (- (double x2) (double x1))
+        dy (- (double y2) (double y1))]
+    (case from-side
+      :top [x1 (clamp-between (- y1 step) (:min-y bounds) (:max-y bounds))]
+      :bottom [x1 (clamp-between (+ y1 step) (:min-y bounds) (:max-y bounds))]
+      :left [(clamp-between (- x1 step) (:min-x bounds) (:max-x bounds)) y1]
+      :right [(clamp-between (+ x1 step) (:min-x bounds) (:max-x bounds)) y1]
+      [(clamp-between (+ x1 (* 0.22 dx)) (:min-x bounds) (:max-x bounds))
+       (clamp-between (+ y1 (* 0.22 dy)) (:min-y bounds) (:max-y bounds))])))
+
 (defn- needs-rectilinear-route?
   [x1 y1 x2 y2 {:keys [all-rects from-rect to-rect]}]
   (let [dx (Math/abs (double (- x2 x1)))
@@ -604,18 +652,21 @@
 
 (defn- resolved-edge-path
   [points bounds edge]
-  (when-let [{:keys [x1 y1 x2 y2 anchored?]} (resolved-edge-segment points bounds edge)]
+  (when-let [{:keys [x1 y1 x2 y2 anchored? from-side]} (resolved-edge-segment points bounds edge)]
     (if-not (needs-rectilinear-route? x1 y1 x2 y2 edge)
       {:points [[x1 y1] [x2 y2]] :anchored? anchored?}
-      (let [dx (- (double x2) (double x1))
-            dy (- (double y2) (double y1))
-            step-x (clamp-between (+ x1 (* 0.22 dx)) (:min-x bounds) (:max-x bounds))
-            step-y (clamp-between (+ y1 (* 0.22 dy)) (:min-y bounds) (:max-y bounds))
-            dogleg-y (clamp-between step-y (:min-y bounds) (:max-y bounds))
-            p1 [step-x step-y]
-            p2 [x2 dogleg-y]
-            p3 [x2 y2]]
-        {:points (compact-points [[x1 y1] p1 p2 p3])
+      (let [ignored (cond-> #{}
+                      (:from-rect edge) (conj (:from-rect edge))
+                      (:to-rect edge) (conj (:to-rect edge)))
+            [p1x p1y :as p1] (source-exit-point x1 y1 x2 y2 from-side bounds)
+            p1 (if (segment-intersects-any-rect? x1 y1 p1x p1y (:all-rects edge) ignored)
+                 [x1 (clamp-between (+ y1 (if (<= y2 y1) -20.0 20.0)) (:min-y bounds) (:max-y bounds))]
+                 p1)
+            route-x (choose-route-column (first p1) (second p1) x2 y2 edge bounds)
+            p2 [route-x (second p1)]
+            p3 [route-x y2]
+            p4 [x2 y2]]
+        {:points (compact-points [[x1 y1] p1 p2 p3 p4])
          :anchored? anchored?}))))
 
 (defn- draw-edge

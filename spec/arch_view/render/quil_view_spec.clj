@@ -495,6 +495,29 @@
         (should= 110.0 x1)
         (should= 300.0 x2))))
 
+  (it "routes long crossing edges with vertical segments outside blocking rectangles"
+    (let [from-rect {:x 20.0 :y 20.0 :width 120.0 :height 80.0}
+          blocker {:x 230.0 :y 80.0 :width 140.0 :height 260.0}
+          to-rect {:x 520.0 :y 320.0 :width 120.0 :height 80.0}
+          points {"a" {:x 80.0 :y 60.0}
+                  "b" {:x 580.0 :y 360.0}}
+          edge {:from "a"
+                :to "b"
+                :arrowhead :standard
+                :from-rect from-rect
+                :to-rect to-rect
+                :all-rects [from-rect blocker to-rect]}
+          resolved (#'sut/resolved-edge-path points {:min-x 0.0 :max-x 900.0 :min-y 0.0 :max-y 700.0} edge)
+          segments (map vector (:points resolved) (rest (:points resolved)))
+          verticals (filter (fn [[p1 p2]]
+                              (< (Math/abs (- (double (first p1))
+                                              (double (first p2))))
+                                 0.1))
+                            segments)]
+      (should= true (seq verticals))
+      (doseq [[[x1 y1] [x2 y2]] verticals]
+        (should= false (#'sut/segment-intersects-rect? x1 y1 x2 y2 blocker)))))
+
   (it "does not force a fixed per-track vertical offset"
     (let [architecture {:layout {:layers [{:index 0 :modules ["a"]}
                                           {:index 1 :modules ["b"]}]
