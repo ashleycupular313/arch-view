@@ -7,11 +7,9 @@
   (it "loads guidance and derived graph"
     (let [root (.toFile (java.nio.file.Files/createTempDirectory "arch-view-project" (make-array java.nio.file.attribute.FileAttribute 0)))
           src-dir (doto (java.io.File. root "src") .mkdirs)
-          dep-file (java.io.File. root "dependency-checker.edn")
           a-file (java.io.File. src-dir "my/app/a.clj")
           b-file (java.io.File. src-dir "my/app/b.clj")]
       (.mkdirs (.getParentFile a-file))
-      (spit dep-file "{:source-paths [\"src\"] :component-rules [{:component :all :kind :concrete :match \"my.app.*\"}]}")
       (spit a-file "(ns my.app.a (:require [my.app.b :as b]))")
       (spit b-file "(ns my.app.b)")
       (let [architecture (sut/load-architecture (.getAbsolutePath root))]
@@ -27,7 +25,7 @@
                  (get-in architecture [:layout :module->layer]))
         (should= #{{:from "my.app.a" :to "my.app.b" :type :direct}}
                  (:classified-edges architecture))
-        (should= {"my.app.a" :all "my.app.b" :all}
+        (should= {"my.app.a" nil "my.app.b" nil}
                  (:module->component architecture))
         (should= 2 (count (get-in architecture [:scene :layer-rects])))
         (should= 2 (count (get-in architecture [:scene :module-positions])))
@@ -48,12 +46,10 @@
   (it "does not invoke quil rendering when --no-gui is present"
     (let [root (.toFile (java.nio.file.Files/createTempDirectory "arch-view-cli" (make-array java.nio.file.attribute.FileAttribute 0)))
           src-dir (doto (java.io.File. root "src") .mkdirs)
-          dep-file (java.io.File. root "dependency-checker.edn")
           a-file (java.io.File. src-dir "my/app/a.clj")
           b-file (java.io.File. src-dir "my/app/b.clj")
           called? (atom false)]
       (.mkdirs (.getParentFile a-file))
-      (spit dep-file "{:source-paths [\"src\"] :component-rules [{:component :all :kind :concrete :match \"my.app.*\"}]}")
       (spit a-file "(ns my.app.a (:require [my.app.b :as b]))")
       (spit b-file "(ns my.app.b)")
       (with-redefs [render/show! (fn [& _] (reset! called? true))]
@@ -63,14 +59,12 @@
   (it "invokes viewer and wait loop when gui mode is enabled"
     (let [root (.toFile (java.nio.file.Files/createTempDirectory "arch-view-gui" (make-array java.nio.file.attribute.FileAttribute 0)))
           src-dir (doto (java.io.File. root "src") .mkdirs)
-          dep-file (java.io.File. root "dependency-checker.edn")
           a-file (java.io.File. src-dir "my/app/a.clj")
           b-file (java.io.File. src-dir "my/app/b.clj")
           showed? (atom false)
           waited? (atom false)
           exited? (atom false)]
       (.mkdirs (.getParentFile a-file))
-      (spit dep-file "{:source-paths [\"src\"] :component-rules [{:component :all :kind :concrete :match \"my.app.*\"}]}")
       (spit a-file "(ns my.app.a (:require [my.app.b :as b]))")
       (spit b-file "(ns my.app.b)")
       (with-redefs [render/show! (fn [& _] (reset! showed? true) :fake-sketch)
@@ -83,12 +77,14 @@
       (should= true @waited?)
       (should= true @exited?)))
 
-  (it "falls back to default guidance when dependency-checker.edn is missing"
+  (it "ignores dependency-checker.edn and uses default guidance"
     (let [root (.toFile (java.nio.file.Files/createTempDirectory "arch-view-no-guide" (make-array java.nio.file.attribute.FileAttribute 0)))
           src-dir (doto (java.io.File. root "src") .mkdirs)
+          dep-file (java.io.File. root "dependency-checker.edn")
           a-file (java.io.File. src-dir "my/app/a.clj")
           b-file (java.io.File. src-dir "my/app/b.clj")]
       (.mkdirs (.getParentFile a-file))
+      (spit dep-file "{:source-paths [\"nonsense\"] :component-rules [{:component :never :kind :concrete :match \"**\"}]}")
       (spit a-file "(ns my.app.a (:require [my.app.b :as b]))")
       (spit b-file "(ns my.app.b)")
       (let [architecture (sut/load-architecture (.getAbsolutePath root))]
@@ -98,12 +94,10 @@
   (it "writes architecture data to out file when --out is provided"
     (let [root (.toFile (java.nio.file.Files/createTempDirectory "arch-view-out" (make-array java.nio.file.attribute.FileAttribute 0)))
           src-dir (doto (java.io.File. root "src") .mkdirs)
-          dep-file (java.io.File. root "dependency-checker.edn")
           out-file (java.io.File. root "scene.edn")
           a-file (java.io.File. src-dir "my/app/a.clj")
           b-file (java.io.File. src-dir "my/app/b.clj")]
       (.mkdirs (.getParentFile a-file))
-      (spit dep-file "{:source-paths [\"src\"] :component-rules [{:component :all :kind :concrete :match \"my.app.*\"}]}")
       (spit a-file "(ns my.app.a (:require [my.app.b :as b]))")
       (spit b-file "(ns my.app.b)")
       (with-redefs [render/show! (fn [& _] nil)]

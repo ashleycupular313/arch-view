@@ -1,20 +1,19 @@
 (ns arch-view.core
   (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
             [clojure.string :as str]
-            [arch-view.input.dependency-checker :as checker]
             [arch-view.input.dependency-extract :as extract]
             [arch-view.layout.layers :as layers]
             [arch-view.model.classify :as classify]
             [arch-view.model.components :as components]
             [arch-view.render.quil-view :as render]))
 
+(def default-guidance
+  {:source-paths ["src"]
+   :component-rules []})
+
 (defn load-architecture
   [project-path]
-  (let [guidance-file (io/file project-path "dependency-checker.edn")
-        guidance (if (.exists guidance-file)
-                   (checker/read-guidance (.getAbsolutePath guidance-file))
-                   {:source-paths ["src"] :component-rules []})
+  (let [guidance default-guidance
         source-paths (or (:source-paths guidance) ["src"])
         graph (extract/build-module-graph project-path source-paths)
         module->component (components/assign-components guidance (:nodes graph))
