@@ -157,6 +157,17 @@
                    [from-layer to-layer]))))
        vec))
 
+(defn- incoming-counts-by-layer
+  [layer-indexes layer-pairs]
+  (reduce (fn [acc [_ to-layer]]
+            (if (contains? acc to-layer)
+              (update acc to-layer inc)
+              acc))
+          (zipmap layer-indexes (repeat 0))
+          (filter (fn [[from-layer to-layer]]
+                    (not= from-layer to-layer))
+                  layer-pairs)))
+
 (defn- edge-point
   [placement node]
   (when-let [{:keys [track row]} (get placement node)]
@@ -197,16 +208,25 @@
         true))))
 
 (defn- assign-layer-slots
-  [ordered-layer-indexes pairs]
+  [ordered-layer-indexes pairs incoming-counts]
   (let [pair-index (group-by first pairs)
-        reverse-index (group-by second pairs)]
+        reverse-index (group-by second pairs)
+        unique-counts (->> ordered-layer-indexes
+                           (map #(get incoming-counts % 0))
+                           distinct
+                           sort
+                           vec)
+        count->min-row (into {} (map-indexed (fn [idx c] [c idx]) unique-counts))]
     (loop [remaining ordered-layer-indexes
            placement {}
            max-row -1]
       (if (empty? remaining)
         placement
         (let [idx (first remaining)
-              candidates (for [row-candidate (range (inc (+ 2 max-row)))
+              min-row (get count->min-row (get incoming-counts idx 0) 0)
+              row-limit (inc (max (+ 2 max-row)
+                                  (+ 2 min-row)))
+              candidates (for [row-candidate (range min-row row-limit)
                                track-candidate (range racetrack-count)
                                :let [occupied? (some (fn [{:keys [row track]}]
                                                        (and (= row row-candidate)
@@ -281,10 +301,15 @@
   ([architecture {:keys [canvas-width layer-height layer-gap]
                   :or {canvas-width 1200 layer-height 140 layer-gap 24}}]
   (let [layers (get-in architecture [:layout :layers])
-         layer-indexes (->> layers (map :index) sort vec)
+         raw-layer-indexes (->> layers (map :index) sort vec)
          module->layer (or (get-in architecture [:layout :module->layer]) {})
          layer-pairs (dependency-pairs-by-layer (:classified-edges architecture) module->layer)
-         placement-by-layer-index (assign-layer-slots layer-indexes layer-pairs)
+         incoming-counts (incoming-counts-by-layer raw-layer-indexes layer-pairs)
+         layer-indexes (->> raw-layer-indexes
+                            (sort-by (fn [idx]
+                                       [(get incoming-counts idx 0) idx]))
+                            vec)
+         placement-by-layer-index (assign-layer-slots layer-indexes layer-pairs incoming-counts)
          module->component (or (:module->component architecture) {})
          layer->label (or (:layer->label architecture) {})
          module->kind (or (:module->kind architecture) {})

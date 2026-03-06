@@ -122,7 +122,7 @@
       (should= 0 (#'sut/edge-crossing-count placement non-crossing))))
 
   (it "avoids upward placement for simple dependencies"
-    (let [slots (#'sut/assign-layer-slots [0 1] [[0 1]])]
+    (let [slots (#'sut/assign-layer-slots [0 1] [[0 1]] {0 0 1 1})]
       (should= true (<= (get-in slots [0 :row])
                         (get-in slots [1 :row])))))
 
@@ -355,7 +355,7 @@
       (should= "+ alpha" (get labels "alpha"))
       (should= "+ beta" (get labels "beta"))))
 
-  (it "uses namespace hierarchy order for layers in grouped views"
+  (it "orders grouped layers by incoming dependency count"
     (let [architecture {:graph {:nodes #{"empire.ui"
                                          "empire.acceptance"
                                          "empire.application"}
@@ -364,10 +364,10 @@
                         :classified-edges #{{:from "empire.ui" :to "empire.acceptance" :type :direct}}}
           root-view (sut/view-architecture architecture [])
           scene (sut/build-scene root-view)
-          layer-by-module (into {} (map (juxt :module :layer) (:module-positions scene)))
+          y-by-label (into {} (map (juxt :label :y) (:layer-rects scene)))
           labels (mapv :label (:layer-rects scene))]
-      (should= true (< (get layer-by-module "acceptance")
-                       (get layer-by-module "ui")))
+      (should= true (> (get y-by-label "acceptance")
+                       (get y-by-label "ui")))
       (should-not= nil (some #{"ui"} labels))
       (should-not= nil (some #{"acceptance"} labels))
       (should-not= nil (some #{"application"} labels))))
