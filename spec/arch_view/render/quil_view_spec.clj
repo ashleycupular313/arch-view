@@ -112,6 +112,16 @@
     (should= "a->b(3)" (sut/edge-hover-label {:from "a" :to "b" :count 3}))
     (should= "a->b(1)" (sut/edge-hover-label {:from "a" :to "b"})))
 
+  (it "counts crossings between edges based on layer track/row points"
+    (let [placement {0 {:track 0 :row 0}
+                     1 {:track 1 :row 0}
+                     2 {:track 1 :row 1}
+                     3 {:track 0 :row 1}}
+          crossing [[0 2] [1 3]]
+          non-crossing [[0 3] [1 2]]]
+      (should= 1 (#'sut/edge-crossing-count placement crossing))
+      (should= 0 (#'sut/edge-crossing-count placement non-crossing))))
+
   (it "finds hovered module by label hitbox"
     (let [modules [{:module "alpha.beta.core"
                     :label "a.b.core"

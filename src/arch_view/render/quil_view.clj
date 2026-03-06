@@ -158,6 +158,45 @@
                    [from-layer to-layer]))))
        vec))
 
+(defn- edge-point
+  [placement node]
+  (when-let [{:keys [track row]} (get placement node)]
+    [(double track) (double row)]))
+
+(defn- orientation
+  [[ax ay] [bx by] [cx cy]]
+  (- (* (- bx ax) (- cy ay))
+     (* (- by ay) (- cx ax))))
+
+(defn- segment-crosses?
+  [p1 p2 q1 q2]
+  (let [o1 (orientation p1 p2 q1)
+        o2 (orientation p1 p2 q2)
+        o3 (orientation q1 q2 p1)
+        o4 (orientation q1 q2 p2)
+        eps 1.0e-9]
+    (and (< (* o1 o2) (- eps))
+         (< (* o3 o4) (- eps)))))
+
+(defn- edge-cross?
+  [placement [a b] [c d]]
+  (and (not-any? #{a b} [c d])
+       (let [p1 (edge-point placement a)
+             p2 (edge-point placement b)
+             q1 (edge-point placement c)
+             q2 (edge-point placement d)]
+         (and p1 p2 q1 q2
+              (segment-crosses? p1 p2 q1 q2)))))
+
+(defn- edge-crossing-count
+  [placement edge-pairs]
+  (let [pairs (vec edge-pairs)]
+    (count
+      (for [i (range (count pairs))
+            j (range (inc i) (count pairs))
+            :when (edge-cross? placement (nth pairs i) (nth pairs j))]
+        true))))
+
 (defn- assign-layer-slots
   [ordered-layer-indexes pairs]
   (let [pair-index (group-by first pairs)
@@ -185,19 +224,38 @@
                       incoming (for [[from _] (get reverse-index idx)
                                      :let [p (get placement from)]
                                      :when p]
-                                 [p false])]
-                  (reduce (fn [cost [{other-row :row other-track :track} as-from?]]
-                            (let [horizontal (Math/abs (double (- track other-track)))
-                                  vertical (Math/abs (double (- row other-row)))
-                                  upward? (if as-from?
-                                            (< other-row row)
-                                            (< row other-row))]
-                              (+ cost
-                                 (* 9.0 horizontal)
-                                 (* 2.0 vertical)
-                                 (if upward? 18.0 0.0))))
-                          0.0
-                          (concat outgoing incoming))))
+                                 [p false])
+                      edge-shape-cost
+                      (reduce (fn [cost [{other-row :row other-track :track} as-from?]]
+                                (let [horizontal (Math/abs (double (- track other-track)))
+                                      vertical (Math/abs (double (- row other-row)))
+                                      upward? (if as-from?
+                                                (< other-row row)
+                                                (< row other-row))]
+                                  (+ cost
+                                     (* 9.0 horizontal)
+                                     (* 2.0 vertical)
+                                     (if upward? 18.0 0.0))))
+                              0.0
+                              (concat outgoing incoming))
+                      candidate-placement {:row row :track track}
+                      placement* (assoc placement idx candidate-placement)
+                      placed-edges (->> pairs
+                                        (filter (fn [[from to]]
+                                                  (and (contains? placement from)
+                                                       (contains? placement to))))
+                                        vec)
+                      new-edges (->> pairs
+                                     (filter (fn [[from to]]
+                                               (or (and (= from idx) (contains? placement to))
+                                                   (and (= to idx) (contains? placement from)))))
+                                     vec)
+                      crossing-count (count (for [new-edge new-edges
+                                                  placed-edge placed-edges
+                                                  :when (edge-cross? placement* new-edge placed-edge)]
+                                              true))
+                      crossing-cost (* 180.0 (double crossing-count))]
+                  (+ edge-shape-cost crossing-cost)))
               best (reduce (fn [best candidate]
                              (let [height-cost (* 100.0 (:row candidate))
                                    score (+ height-cost (connection-cost candidate))]
