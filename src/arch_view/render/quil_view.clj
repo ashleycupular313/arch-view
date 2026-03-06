@@ -650,11 +650,35 @@
           []
           points))
 
+(defn- enforce-target-perpendicular
+  [path-points to-side]
+  (if (or (nil? to-side)
+          (< (count path-points) 2))
+    path-points
+    (let [[tx ty] (last path-points)
+          [px py] (nth path-points (- (count path-points) 2))
+          adjusted (case to-side
+                     (:top :bottom)
+                     (if (< (Math/abs (- (double px) (double tx))) 0.1)
+                       path-points
+                       (concat (butlast (butlast path-points))
+                               [[px py] [tx py] [tx ty]]))
+
+                     (:left :right)
+                     (if (< (Math/abs (- (double py) (double ty))) 0.1)
+                       path-points
+                       (concat (butlast (butlast path-points))
+                               [[px py] [px ty] [tx ty]]))
+
+                     path-points)]
+      (compact-points (vec adjusted)))))
+
 (defn- resolved-edge-path
   [points bounds edge]
-  (when-let [{:keys [x1 y1 x2 y2 anchored? from-side]} (resolved-edge-segment points bounds edge)]
+  (when-let [{:keys [x1 y1 x2 y2 anchored? from-side to-side]} (resolved-edge-segment points bounds edge)]
     (if-not (needs-rectilinear-route? x1 y1 x2 y2 edge)
-      {:points [[x1 y1] [x2 y2]] :anchored? anchored?}
+      {:points (enforce-target-perpendicular [[x1 y1] [x2 y2]] to-side)
+       :anchored? anchored?}
       (let [ignored (cond-> #{}
                       (:from-rect edge) (conj (:from-rect edge))
                       (:to-rect edge) (conj (:to-rect edge)))
@@ -666,27 +690,124 @@
             p2 [route-x (second p1)]
             p3 [route-x y2]
             p4 [x2 y2]]
-        {:points (compact-points [[x1 y1] p1 p2 p3 p4])
+        {:points (enforce-target-perpendicular (compact-points [[x1 y1] p1 p2 p3 p4]) to-side)
          :anchored? anchored?}))))
+
+(def ^:private min-sidestep 10.0)
+
+(defn- path-segments
+  [path-points]
+  (map vector path-points (rest path-points)))
+
+(defn- horizontal-segment?
+  [[[x1 y1] [x2 y2]]]
+  (and (< (Math/abs (- (double y1) (double y2))) 0.1)
+       (>= (Math/abs (- (double x1) (double x2))) 0.1)))
+
+(defn- vertical-segment?
+  [[[x1 y1] [x2 y2]]]
+  (and (< (Math/abs (- (double x1) (double x2))) 0.1)
+       (>= (Math/abs (- (double y1) (double y2))) 0.1)))
+
+(defn- ranges-overlap?
+  [a1 a2 b1 b2]
+  (let [lo (max (min a1 a2) (min b1 b2))
+        hi (min (max a1 a2) (max b1 b2))]
+    (> (- hi lo) 0.1)))
+
+(defn- collinear-overlap?
+  [s1 s2]
+  (let [[[ax1 ay1] [ax2 ay2]] s1
+        [[bx1 by1] [bx2 by2]] s2]
+    (cond
+      (and (horizontal-segment? s1)
+           (horizontal-segment? s2)
+           (< (Math/abs (- (double ay1) (double by1))) 0.1))
+      (ranges-overlap? ax1 ax2 bx1 bx2)
+
+      (and (vertical-segment? s1)
+           (vertical-segment? s2)
+           (< (Math/abs (- (double ax1) (double bx1))) 0.1))
+      (ranges-overlap? ay1 ay2 by1 by2)
+
+      :else false)))
+
+(defn- path-clear-of-rectangles?
+  [path-points edge]
+  (let [ignored (cond-> #{}
+                  (:from-rect edge) (conj (:from-rect edge))
+                  (:to-rect edge) (conj (:to-rect edge)))]
+    (not-any? (fn [[[x1 y1] [x2 y2]]]
+                (segment-intersects-any-rect? x1 y1 x2 y2 (:all-rects edge) ignored))
+              (path-segments path-points))))
+
+(defn- path-overlaps-existing?
+  [path-points placed-segments]
+  (some (fn [segment]
+          (some #(collinear-overlap? segment %) placed-segments))
+        (path-segments path-points)))
+
+(defn- nudge-path
+  [path-points dx dy]
+  (mapv (fn [[x y]]
+          [(+ (double x) (double dx))
+           (+ (double y) (double dy))])
+        path-points))
+
+(defn- dominant-axis
+  [path-points]
+  (let [[sx sy] (first path-points)
+        [tx ty] (last path-points)]
+    (if (>= (Math/abs (- (double tx) (double sx)))
+            (Math/abs (- (double ty) (double sy))))
+      :x
+      :y)))
+
+(defn- sidestep-candidates
+  [path-points]
+  (let [axis (dominant-axis path-points)
+        steps (mapcat (fn [n]
+                        [(* min-sidestep n)
+                         (* -1.0 min-sidestep n)])
+                      (range 1 40))
+        base [path-points]]
+    (into base
+          (for [step steps]
+            (if (= axis :x)
+              (nudge-path path-points 0.0 step)
+              (nudge-path path-points step 0.0))))))
+
+(defn- place-non-overlapping-path
+  [path-points edge placed-segments]
+  (or (first (filter (fn [candidate]
+                       (and (path-clear-of-rectangles? candidate edge)
+                            (not (path-overlaps-existing? candidate placed-segments))))
+                     (sidestep-candidates path-points)))
+      path-points))
 
 (defn- draw-edge
   [points bounds {:keys [arrowhead preserve-endpoints?] :as edge}]
-  (when-let [{:keys [points anchored?]} (resolved-edge-path points bounds edge)]
-    (let [segments (map vector points (rest points))
-          [from-p to-p] (last segments)
-          [x1 y1] from-p
-          [x2 y2] to-p]
-      (if (and (= 1 (count segments)) (not preserve-endpoints?))
-        (draw-arrow-between-points x1 y1 x2 y2 arrowhead (not anchored?))
-        (do
-          (if (= :closed-triangle arrowhead)
-            (q/stroke 0 128 0)
-            (q/stroke 0 0 0))
-          (doseq [[[sx sy] [tx ty]] (butlast segments)]
-            (q/line sx sy tx ty))
-          (let [[ex ey] (edge-line-endpoint x1 y1 x2 y2 arrowhead)]
-            (q/line x1 y1 ex ey)
-            (draw-arrowhead x1 y1 x2 y2 arrowhead)))))))
+  (let [path-points (or (:route-points edge)
+                        (:points (resolved-edge-path points bounds edge)))
+        anchored? (if (contains? edge :anchored?)
+                    (:anchored? edge)
+                    (boolean (or (:from-rect edge) (:to-rect edge))))]
+    (when (seq path-points)
+      (let [segments (map vector path-points (rest path-points))
+            [from-p to-p] (last segments)
+            [x1 y1] from-p
+            [x2 y2] to-p]
+        (if (and (= 1 (count segments)) (not preserve-endpoints?))
+          (draw-arrow-between-points x1 y1 x2 y2 arrowhead (not anchored?))
+          (do
+            (if (= :closed-triangle arrowhead)
+              (q/stroke 0 128 0)
+              (q/stroke 0 0 0))
+            (doseq [[[sx sy] [tx ty]] (butlast segments)]
+              (q/line sx sy tx ty))
+            (let [[ex ey] (edge-line-endpoint x1 y1 x2 y2 arrowhead)]
+              (q/line x1 y1 ex ey)
+              (draw-arrowhead x1 y1 x2 y2 arrowhead))))))))
 
 (defn layer-edge-drawables
   [scene]
@@ -1117,6 +1238,16 @@
   (let [points (module-point-map scene)
         layer-rect-by-index (into {} (map (juxt :index identity) (:layer-rects scene)))
         module->layer (into {} (map (juxt :module :layer) (:module-positions scene)))
+        route-bounds {:min-x 14.0
+                      :max-x (+ 20.0
+                                (reduce max 0.0
+                                        (map (fn [{:keys [x width]}] (+ x width))
+                                             (:layer-rects scene))))
+                      :min-y 14.0
+                      :max-y (+ 20.0
+                                (reduce max 0.0
+                                        (map (fn [{:keys [y height]}] (+ y height))
+                                             (:layer-rects scene))))}
         edge-drawables (->> (declutter-edge-drawables scene declutter-mode)
                             (mapv (fn [{:keys [from to] :as edge}]
                                     (let [from-layer (if (number? from)
@@ -1129,7 +1260,20 @@
                                              :from-rect (get layer-rect-by-index from-layer)
                                              :to-rect (get layer-rect-by-index to-layer)
                                              :all-rects (:layer-rects scene))))))]
-    (apply-parallel-arrow-spacing edge-drawables points)))
+    (let [spaced (apply-parallel-arrow-spacing edge-drawables points)]
+      (loop [remaining spaced
+             placed []
+             placed-segments []]
+        (if (empty? remaining)
+          placed
+          (let [edge (first remaining)
+                base-path (or (:points (resolved-edge-path points route-bounds edge))
+                              [])
+                route-points (place-non-overlapping-path base-path edge placed-segments)
+                edge' (assoc edge :route-points route-points :anchored? (boolean (or (:from-rect edge) (:to-rect edge))))]
+            (recur (rest remaining)
+                   (conj placed edge')
+                   (into placed-segments (path-segments route-points)))))))))
 
 (defn- draw-toolbar
   [{:keys [namespace-path declutter-mode nav-stack]}]
@@ -1191,20 +1335,22 @@
   ([spaced-edges points bounds mx my tolerance]
    (->> spaced-edges
         (map (fn [edge]
-               (when-let [{path-points :points} (resolved-edge-path points bounds edge)]
-                 (let [segments (map vector path-points (rest path-points))
-                       segment-info (map (fn [[[x1 y1] [x2 y2]]]
-                                           (let [dx (Math/abs (double (- x2 x1)))
-                                                 dy (Math/abs (double (- y2 y1)))
-                                                 diagonal? (and (> dx 1.0) (> dy 1.0))
-                                                 tol (* (double tolerance) (if diagonal? 0.6 1.0))
-                                                 dist (point->segment-distance mx my x1 y1 x2 y2)]
-                                             {:tol tol :dist dist}))
-                                         segments)
-                       best (first (sort-by :dist segment-info))]
-                   (assoc edge
-                          :hover-tolerance (:tol best)
-                          :distance (:dist best))))))
+               (let [path-points (or (:route-points edge)
+                                     (:points (resolved-edge-path points bounds edge)))]
+                 (when (seq path-points)
+                    (let [segments (map vector path-points (rest path-points))
+                          segment-info (map (fn [[[x1 y1] [x2 y2]]]
+                                              (let [dx (Math/abs (double (- x2 x1)))
+                                                    dy (Math/abs (double (- y2 y1)))
+                                                    diagonal? (and (> dx 1.0) (> dy 1.0))
+                                                    tol (* (double tolerance) (if diagonal? 0.6 1.0))
+                                                    dist (point->segment-distance mx my x1 y1 x2 y2)]
+                                                {:tol tol :dist dist}))
+                                            segments)
+                          best (first (sort-by :dist segment-info))]
+                      (assoc edge
+                             :hover-tolerance (:tol best)
+                             :distance (:dist best)))))))
         (remove nil?)
         (filter #(<= (double (:distance %)) (double (:hover-tolerance %))))
         (sort-by :distance)

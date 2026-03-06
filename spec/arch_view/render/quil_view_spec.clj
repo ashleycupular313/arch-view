@@ -518,6 +518,23 @@
       (doseq [[[x1 y1] [x2 y2]] verticals]
         (should= false (#'sut/segment-intersects-rect? x1 y1 x2 y2 blocker)))))
 
+  (it "ensures final segment is perpendicular to target rectangle side"
+    (let [from-rect {:x 40.0 :y 40.0 :width 100.0 :height 80.0}
+          to-rect {:x 260.0 :y 240.0 :width 120.0 :height 80.0}
+          points {"a" {:x 90.0 :y 80.0}
+                  "b" {:x 320.0 :y 240.0}}
+          edge {:from "a"
+                :to "b"
+                :arrowhead :standard
+                :from-rect from-rect
+                :to-rect to-rect
+                :all-rects [from-rect to-rect]}
+          resolved (#'sut/resolved-edge-path points {:min-x 0.0 :max-x 900.0 :min-y 0.0 :max-y 700.0} edge)
+          [p1 p2] (take-last 2 (:points resolved))
+          dx (Math/abs (- (double (first p2)) (double (first p1))))
+          dy (Math/abs (- (double (second p2)) (double (second p1))))]
+      (should= true (or (< dx 0.1) (< dy 0.1)))))
+
   (it "does not force a fixed per-track vertical offset"
     (let [architecture {:layout {:layers [{:index 0 :modules ["a"]}
                                           {:index 1 :modules ["b"]}]
