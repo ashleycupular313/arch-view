@@ -1,6 +1,6 @@
 (ns arch-view.render.quil-view-spec
   (:require [clojure.string :as str]
-            [arch-view.render.quil-view :as sut]
+            [arch-view.render.ui.quil.view :as sut]
             [speclj.core :refer :all]))
 
 (describe "quil scene model"
@@ -626,6 +626,32 @@
       (should-not= nil o2)
       (should= 15.0 (Math/abs (- o1 o2)))))
 
+  (it "reuses the same lane for non-overlapping layer arrows"
+    (let [scene {:module-positions [{:module "a" :layer 0 :x 100 :y 60}
+                                    {:module "b" :layer 1 :x 100 :y 180}
+                                    {:module "c" :layer 2 :x 500 :y 300}
+                                    {:module "d" :layer 3 :x 500 :y 420}]
+                 :layer-rects [{:index 0 :x 0 :y 0 :width 400 :height 100}
+                               {:index 1 :x 0 :y 120 :width 400 :height 100}
+                               {:index 2 :x 420 :y 240 :width 400 :height 100}
+                               {:index 3 :x 420 :y 360 :width 400 :height 100}]
+                 :edge-drawables [{:from "a" :to "b" :type :direct :arrowhead :standard}
+                                  {:from "c" :to "d" :type :direct :arrowhead :standard}]}
+          offsets (->> (sut/layer-edge-drawables scene)
+                       (map (juxt :parallel-offset-x :parallel-offset-y))
+                       distinct
+                       vec)]
+      (should= 1 (count offsets))))
+
+  (it "ignores same-layer and unknown-module edges in layer mode"
+    (let [scene {:module-positions [{:module "a" :layer 0 :x 100 :y 60}
+                                    {:module "b" :layer 0 :x 200 :y 60}]
+                 :layer-rects [{:index 0 :x 0 :y 0 :width 400 :height 100}]
+                 :edge-drawables [{:from "a" :to "b" :type :direct :arrowhead :standard}
+                                  {:from "x" :to "y" :type :direct :arrowhead :standard}]}
+          edges (sut/layer-edge-drawables scene)]
+      (should= [] edges)))
+
   (it "cycles declutter mode when declutter button is clicked"
     (let [state {:scene {:module-positions [] :layer-rects [] :edge-drawables []}
                  :architecture nil
@@ -765,3 +791,260 @@
                  :dragging-scrollbar? false}
           next-state (sut/handle-mouse-clicked state {:x 20.0 :y 10.0})]
       (should= state next-state)))
+
+(describe "quil decrap coverage"
+  (it "handles segment overlap and invalid-touch edge cases"
+    (let [rect {:x 10.0 :y 20.0 :width 100.0 :height 60.0}
+          to-rect {:x 240.0 :y 40.0 :width 120.0 :height 80.0}
+          edge {:from-rect rect :to-rect to-rect}]
+      (should= true (#'sut/segment-overlaps-rect-edge? [[20.0 20.0] [90.0 20.0]] rect))
+      (should= true (#'sut/segment-overlaps-rect-edge? [[10.0 30.0] [10.0 70.0]] rect))
+      (should= false (#'sut/segment-overlaps-rect-edge? [[20.0 30.0] [90.0 40.0]] rect))
+      (should= false (#'sut/segment-invalid-for-rect? 0 1 [[0.0 0.0] [5.0 5.0]] rect edge))
+      (should= true (#'sut/segment-invalid-for-rect? 0 1 [[60.0 40.0] [80.0 50.0]] rect edge))
+      (should= false (#'sut/segment-invalid-for-rect? 0 1 [[110.0 40.0] [140.0 40.0]] rect edge))
+      (should= true (#'sut/segment-invalid-for-rect? 0 1 [[90.0 40.0] [140.0 40.0]] rect edge))))
+
+  (it "applies ctrl-click zoom in and out"
+    (let [state {:scene {:layer-rects [{:x 0.0 :y 0.0 :width 2200.0 :height 1600.0}]}
+                 :zoom 1.0
+                 :zoom-stack []
+                 :scroll-y 200.0
+                 :viewport-height 700}
+          no-ctrl (#'sut/apply-zoom-click state {:button :right})
+          zoomed (#'sut/apply-zoom-click state {:control true :button :right :x 180.0 :y 300.0})
+          restored (#'sut/apply-zoom-click zoomed {:control true :button :left :x 180.0 :y 300.0})]
+      (should= nil no-ctrl)
+      (should= 1.1 (:zoom zoomed))
+      (should= 1 (count (:zoom-stack zoomed)))
+      (should= 1.0 (:zoom restored))
+      (should= 0 (count (:zoom-stack restored)))
+      (should= nil (#'sut/apply-zoom-click state {:control true :button :left :x 180.0 :y 300.0}))
+      (should= nil (#'sut/apply-zoom-click state {:control true :button :center :x 180.0 :y 300.0}))))
+
+  (it "draws single-segment edges through draw-arrow-between-points"
+    (let [called (atom nil)]
+      (with-redefs [sut/draw-arrow-between-points (fn [x1 y1 x2 y2 arrowhead use-clearance?]
+                                                    (reset! called [x1 y1 x2 y2 arrowhead use-clearance?]))
+                    quil.core/stroke (fn [& _])
+                    quil.core/line (fn [& _])
+                    sut/draw-arrowhead (fn [& _])]
+        (#'sut/draw-edge {} {:min-x 0.0 :max-x 500.0 :min-y 0.0 :max-y 500.0}
+         {:route-points [[10.0 20.0] [40.0 20.0]]
+          :arrowhead :standard}))
+      (should= [10.0 20.0 40.0 20.0 :standard true] @called)))
+
+  (it "draws multi-segment edges by drawing each segment and arrowhead"
+    (let [lines (atom [])
+          arrow (atom nil)]
+      (with-redefs [quil.core/stroke (fn [& _])
+                    quil.core/line (fn [x1 y1 x2 y2] (swap! lines conj [x1 y1 x2 y2]))
+                    sut/draw-arrowhead (fn [x1 y1 x2 y2 arrowhead] (reset! arrow [x1 y1 x2 y2 arrowhead]))
+                    sut/draw-arrow-between-points (fn [& _] (throw (ex-info "unexpected single-segment path" {})))]
+        (#'sut/draw-edge {} {:min-x 0.0 :max-x 500.0 :min-y 0.0 :max-y 500.0}
+         {:route-points [[0.0 0.0] [20.0 0.0] [20.0 30.0]]
+          :arrowhead :closed-triangle}))
+      (should= [[0.0 0.0 20.0 0.0]
+                [20.0 0.0 20.0 20.0]]
+               @lines)
+      (should= [20.0 0.0 20.0 30.0 :closed-triangle] @arrow)))
+
+  (it "draw-scene chooses cursor and tooltip based on hovered entities"
+    (let [state {:scene {:layer-rects [{:x 0.0 :y 0.0 :width 400.0 :height 200.0}]
+                        :module-positions [{:module "n" :x 20.0 :y 20.0}]
+                        :edge-drawables []}
+                 :declutter-mode :all
+                 :scroll-x 0.0
+                 :scroll-y 0.0
+                 :viewport-height 300
+                 :viewport-width 500
+                 :zoom 1.0}
+          cursor-calls (atom [])
+          tooltip-calls (atom [])]
+      (with-redefs [quil.core/mouse-x (fn [] 40.0)
+                    quil.core/mouse-y (fn [] 50.0)
+                    quil.core/cursor (fn [kind] (swap! cursor-calls conj kind))
+                    quil.core/background (fn [& _])
+                    quil.core/push-matrix (fn [] nil)
+                    quil.core/scale (fn [& _])
+                    quil.core/translate (fn [& _])
+                    quil.core/pop-matrix (fn [] nil)
+                    sut/draw-scene-content (fn [& _])
+                    sut/draw-toolbar (fn [& _])
+                    sut/draw-scrollbar (fn [& _])
+                    sut/prepare-edge-drawables (fn [& _] [{:from "a" :to "b" :count 2}])
+                    sut/hovered-module-position (fn [& _] {:full-name "module.full" :drillable? true})
+                    sut/hovered-layer-label (fn [& _] nil)
+                    sut/hovered-edge (fn [& _] {:from "a" :to "b" :count 2})
+                    sut/draw-tooltip (fn [text _ _] (swap! tooltip-calls conj text))]
+        (#'sut/draw-scene state)
+        (with-redefs [sut/hovered-module-position (fn [& _] nil)
+                      sut/hovered-layer-label (fn [& _] {:full-name "layer.full"})]
+          (#'sut/draw-scene state))
+        (with-redefs [sut/hovered-module-position (fn [& _] nil)
+                      sut/hovered-layer-label (fn [& _] nil)]
+          (#'sut/draw-scene state)))
+      (should= [:cross :arrow :arrow] @cursor-calls)
+      (should= ["module.full" "layer.full" "a->b(2)"] @tooltip-calls))))
+
+(describe "quil routing helper coverage"
+  (it "applies constrained offsets by rectangle side"
+    (let [rect {:x 10.0 :y 20.0 :width 100.0 :height 80.0}]
+      (should= [10.0 40.0] (#'sut/apply-edge-constrained-offset [10.0 35.0] :left rect 0.0 5.0))
+      (should= [110.0 90.0] (#'sut/apply-edge-constrained-offset [110.0 85.0] :right rect 0.0 20.0))
+      (should= [30.0 20.0] (#'sut/apply-edge-constrained-offset [20.0 20.0] :top rect 10.0 0.0))
+      (should= [100.0 100.0] (#'sut/apply-edge-constrained-offset [90.0 100.0] :bottom rect 10.0 0.0))))
+
+  (it "computes source exit points for anchored and free edges"
+    (let [bounds {:min-x 0.0 :max-x 200.0 :min-y 0.0 :max-y 200.0}]
+      (should= [50.0 30.0] (#'sut/source-exit-point 50.0 50.0 100.0 100.0 :top bounds))
+      (should= [50.0 70.0] (#'sut/source-exit-point 50.0 50.0 100.0 100.0 :bottom bounds))
+      (should= [30.0 50.0] (#'sut/source-exit-point 50.0 50.0 100.0 100.0 :left bounds))
+      (should= [70.0 50.0] (#'sut/source-exit-point 50.0 50.0 100.0 100.0 :right bounds))
+      (should= [61.0 72.0] (#'sut/source-exit-point 50.0 50.0 100.0 150.0 nil bounds))))
+
+  (it "enforces perpendicular source and target segments"
+    (let [path [[0.0 0.0] [30.0 10.0] [50.0 40.0]]
+          source-fixed (#'sut/enforce-source-perpendicular path :top)
+          target-fixed (#'sut/enforce-target-perpendicular path :right)]
+      (should= [0.0 0.0] (first source-fixed))
+      (should= 0.0 (first (second source-fixed)))
+      (should= 40.0 (second (last target-fixed)))
+      (should= 50.0 (first (last target-fixed)))))
+
+  (it "detects segment intersections and collinear overlap"
+    (should= true (#'sut/segments-intersect? 0.0 0.0 10.0 10.0 0.0 10.0 10.0 0.0))
+    (should= false (#'sut/segments-intersect? 0.0 0.0 5.0 0.0 0.0 1.0 5.0 1.0))
+    (should= true (#'sut/segments-intersect? 0.0 0.0 10.0 0.0 10.0 0.0 20.0 0.0))
+    (should= true (#'sut/collinear-overlap? [[0.0 0.0] [10.0 0.0]] [[5.0 0.0] [15.0 0.0]]))
+    (should= false (#'sut/collinear-overlap? [[0.0 0.0] [10.0 0.0]] [[11.0 0.0] [15.0 0.0]]))
+    (should= true (#'sut/collinear-overlap? [[2.0 1.0] [2.0 10.0]] [[2.0 6.0] [2.0 14.0]]))
+    (should= false (#'sut/collinear-overlap? [[0.0 0.0] [5.0 5.0]] [[0.0 1.0] [5.0 6.0]])))
+
+  (it "adjusts source/target perpendicular path variants for each side group"
+    (let [target-path [[0.0 0.0] [5.0 5.0] [10.0 20.0]]
+          source-path [[0.0 0.0] [10.0 8.0] [20.0 8.0]]
+          already-target [[0.0 0.0] [10.0 5.0] [10.0 20.0]]
+          already-source [[0.0 0.0] [0.0 8.0] [20.0 8.0]]]
+      (should= [[0.0 0.0] [5.0 5.0] [10.0 5.0] [10.0 20.0]]
+               (vec (#'sut/adjust-target-perpendicular target-path :top)))
+      (should= [[0.0 0.0] [5.0 5.0] [5.0 20.0] [10.0 20.0]]
+               (vec (#'sut/adjust-target-perpendicular target-path :right)))
+      (should= already-target (vec (#'sut/adjust-target-perpendicular already-target :bottom)))
+      (should= [0.0 0.0] (first (vec (#'sut/adjust-target-perpendicular already-target :left))))
+      (should= [10.0 20.0] (last (vec (#'sut/adjust-target-perpendicular already-target :left))))
+      (should= target-path (vec (#'sut/adjust-target-perpendicular target-path nil)))
+      (should= [[0.0 0.0] [0.0 8.0] [20.0 8.0]]
+               (vec (#'sut/adjust-source-perpendicular source-path :top)))
+      (should= [[0.0 0.0] [10.0 0.0] [20.0 8.0]]
+               (vec (#'sut/adjust-source-perpendicular source-path :left)))
+      (should= [0.0 0.0] (first (vec (#'sut/adjust-source-perpendicular already-source :bottom))))
+      (should= [20.0 8.0] (last (vec (#'sut/adjust-source-perpendicular already-source :bottom))))
+      (should= [0.0 0.0] (first (vec (#'sut/adjust-source-perpendicular already-source :right))))
+      (should= [20.0 8.0] (last (vec (#'sut/adjust-source-perpendicular already-source :right))))
+      (should= source-path (vec (#'sut/adjust-source-perpendicular source-path nil)))))
+
+  (it "resolves direct path without rectilinear detour when no blockers"
+    (let [points {"a" {:x 10.0 :y 10.0}
+                  "b" {:x 60.0 :y 30.0}}
+          resolved (#'sut/resolved-edge-path points
+                                             {:min-x 0.0 :max-x 200.0 :min-y 0.0 :max-y 200.0}
+                                             {:from "a" :to "b"
+                                              :from-rect nil
+                                              :to-rect nil
+                                              :all-rects []})]
+      (should= [[10.0 10.0] [60.0 10.0] [60.0 30.0]] (:points resolved))
+      (should= false (:anchored? resolved))))
+
+  (it "computes ignored rect set and adjusted source exits for blocked/unblocked first segment"
+    (let [r1 {:x 0.0 :y 0.0 :width 10.0 :height 10.0}
+          r2 {:x 20.0 :y 20.0 :width 10.0 :height 10.0}
+          edge {:from-rect r1 :to-rect r2 :all-rects [r1 r2]}
+          bounds {:min-x 0.0 :max-x 200.0 :min-y 0.0 :max-y 200.0}]
+      (should= #{} (#'sut/edge-ignored-rects {}))
+      (should= #{r1 r2} (#'sut/edge-ignored-rects edge))
+      (with-redefs [sut/segment-intersects-any-rect? (fn [& _] false)]
+        (should= [30.0 10.0]
+                 (#'sut/adjusted-source-exit-point 30.0 30.0 100.0 100.0 :top bounds edge)))
+      (with-redefs [sut/segment-intersects-any-rect? (fn [& _] true)]
+        (should= [30.0 50.0]
+                 (#'sut/adjusted-source-exit-point 30.0 30.0 100.0 100.0 :top bounds edge))))))
+
+  (it "nudge-path preserves endpoints while keeping an orthogonal path"
+    (let [path [[0.0 0.0] [10.0 0.0] [10.0 20.0] [20.0 20.0]]
+          nudged (#'sut/nudge-path path 0.0 10.0)]
+      (should= [0.0 0.0] (first nudged))
+      (should= [20.0 20.0] (last nudged))
+      (should= true (>= (count nudged) 3))))
+
+  (it "chooses midpoint route column when clear"
+    (let [bounds {:min-x 0.0 :max-x 500.0 :min-y 0.0 :max-y 500.0}
+          x (#'sut/choose-route-column 100.0 100.0 300.0 300.0 {:all-rects [] :from-rect nil :to-rect nil} bounds)]
+      (should= 200.0 x)))
+
+  (it "returns nil when no non-overlapping sidestep candidate is available"
+    (let [base [[0.0 0.0] [50.0 0.0] [100.0 0.0]]
+          placed [[[0.0 0.0] [100.0 0.0]]]
+          chosen (#'sut/place-non-overlapping-path base {:all-rects []} placed)]
+      (should= nil chosen)))
+
+  (it "checks safe displayability and close wait behavior"
+    (should= true (#'sut/safe-displayable? nil true))
+    (should= false (#'sut/safe-displayable? (Object.) false))
+    (let [looping-calls (atom 0)]
+      (with-redefs [sut/safe-looping? (fn [_] (swap! looping-calls inc) true)
+                    sut/safe-displayable? (fn [_ _] false)]
+        (sut/wait-until-closed! :sketch))
+      (should= 1 @looping-calls)
+      (sut/wait-until-closed! nil)))
+
+  (it "builds sketch options and initial state in show!"
+    (let [captured (atom nil)
+          scene {:layer-rects [{:x 0.0 :y 0.0 :width 300.0 :height 120.0}]
+                 :module-positions []
+                 :edge-drawables []}]
+      (with-redefs [quil.core/sketch (fn [& args] (reset! captured (apply hash-map args)) :ok)]
+        (should= :ok (sut/show! scene {:title "T"})))
+      (let [opts @captured
+            setup-state ((:setup opts))]
+        (should= "T" (:title opts))
+        (should= true (contains? setup-state :scene))
+        (should= true (contains? setup-state :viewport-height))
+        (should= true (contains? opts :mouse-released)))))
+
+(describe "quil wrapper helper coverage"
+  (it "scales scroll for zoom and handles non-positive prior zoom"
+    (should= 200.0 (#'sut/scaled-scroll-for-zoom 100.0 1.0 2.0))
+    (should= 100.0 (#'sut/scaled-scroll-for-zoom 100.0 0.0 2.0)))
+
+  (it "draws arrow between points for both direct and abstract edges"
+    (let [strokes (atom [])
+          lines (atom [])
+          arrows (atom [])]
+      (with-redefs [quil.core/stroke (fn [& xs] (swap! strokes conj xs))
+                    quil.core/line (fn [& xs] (swap! lines conj xs))
+                    sut/draw-arrowhead (fn [& xs] (swap! arrows conj xs))]
+        (#'sut/draw-arrow-between-points 0.0 0.0 20.0 0.0 :standard false)
+        (#'sut/draw-arrow-between-points 0.0 0.0 20.0 20.0 :closed-triangle true))
+      (should= 2 (count @lines))
+      (should= 2 (count @arrows))
+      (should= true (some #(= [0 0 0] %) @strokes))
+      (should= true (some #(= [0 128 0] %) @strokes))))
+
+  (it "prepares edge drawables by attaching layer rectangles and route dependencies"
+    (let [captured (atom nil)
+          scene {:layer-rects [{:index 0 :x 0.0 :y 0.0 :width 100.0 :height 80.0}
+                               {:index 1 :x 200.0 :y 120.0 :width 100.0 :height 80.0}]
+                 :module-positions [{:module "a" :layer 0 :x 20.0 :y 20.0}
+                                    {:module "b" :layer 1 :x 240.0 :y 140.0}]
+                 :edge-drawables [{:from "a" :to "b" :type :direct :arrowhead :standard}]}
+          routed [{:from "a" :to "b" :route-points [[20.0 20.0] [240.0 140.0]]}]]
+      (with-redefs [sut/apply-parallel-arrow-spacing (fn [edges _] edges)
+                    arch-view.render.route-engine/route-edges (fn [deps]
+                                                                (reset! captured deps)
+                                                                routed)]
+        (should= routed (#'sut/prepare-edge-drawables scene :all)))
+      (should= 1 (count (:spaced-edges @captured)))
+      (should-not= nil (:from-rect (first (:spaced-edges @captured))))
+      (should-not= nil (:to-rect (first (:spaced-edges @captured))))))
+  )

@@ -5,7 +5,7 @@
             [arch-view.layout.layers :as layers]
             [arch-view.model.classify :as classify]
             [arch-view.model.components :as components]
-            [arch-view.render.quil-view :as render]))
+            [arch-view.render.ui.quil.view :as render]))
 
 (def default-guidance
   {:source-paths ["src"]

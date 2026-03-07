@@ -1,6 +1,6 @@
 (ns arch-view.core-spec
   (:require [arch-view.core :as sut]
-            [arch-view.render.quil-view :as render]
+            [arch-view.render.ui.quil.view :as render]
             [speclj.core :refer :all]))
 
 (describe "core architecture loader"
