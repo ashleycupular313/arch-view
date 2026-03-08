@@ -3,6 +3,82 @@
             [speclj.core :refer :all]))
 
 (describe "quil canvas"
+  (it "clamps tooltip origin inside canvas bounds"
+    (let [fill-calls (atom [])
+          text-calls (atom [])]
+      (with-redefs [quil.core/width (fn [] 100.0)
+                    quil.core/height (fn [] 80.0)
+                    quil.core/fill (fn [& xs] (swap! fill-calls conj xs))
+                    quil.core/stroke (fn [& _])
+                    quil.core/rect (fn [& _])
+                    quil.core/no-stroke (fn [& _])
+                    quil.core/text-align (fn [& _])
+                    quil.core/text (fn [t x y] (swap! text-calls conj [t x y]))]
+        (sut/draw-tooltip "very-long-module-name" 95.0 75.0))
+      (should-not= nil (seq @fill-calls))
+      (let [[_ x y] (first @text-calls)]
+        (should= true (<= x 94.0))
+        (should= true (<= y 74.0)))))
+
+  (it "draw-tooltip-lines colors cyclic lines red and non-cyclic black"
+    (let [fills (atom [])]
+      (with-redefs [quil.core/width (fn [] 300.0)
+                    quil.core/height (fn [] 200.0)
+                    quil.core/fill (fn [& xs] (swap! fills conj xs))
+                    quil.core/stroke (fn [& _])
+                    quil.core/rect (fn [& _])
+                    quil.core/no-stroke (fn [& _])
+                    quil.core/text-align (fn [& _])
+                    quil.core/text (fn [& _])]
+        (sut/draw-tooltip-lines [{:text "a" :cycle? true}
+                                 {:text "b" :cycle? false}]
+                                20.0 20.0))
+      (should= true (some #(= [180 0 0] %) @fills))
+      (should= true (some #(= [0 0 0] %) @fills))))
+
+  (it "draw-scrollbar renders when thumb exists and skips when missing"
+    (let [rect-calls (atom 0)]
+      (with-redefs [quil.core/no-stroke (fn [& _])
+                    quil.core/fill (fn [& _])
+                    quil.core/rect (fn [& _] (swap! rect-calls inc))]
+        (sut/draw-scrollbar 1200.0 500.0 200.0 800.0
+                            {:scrollbar-rect (fn [& _]
+                                               {:x 100.0 :y 40.0 :width 8.0 :height 60.0})})
+        (sut/draw-scrollbar 500.0 500.0 0.0 800.0
+                            {:scrollbar-rect (fn [& _] nil)}))
+      (should= 2 @rect-calls)))
+
+  (it "draw-scene keeps hover inactive while cursor is on toolbar"
+    (let [tooltip-lines (atom nil)]
+      (with-redefs [quil.core/mouse-x (fn [] 20.0)
+                    quil.core/mouse-y (fn [] 10.0)
+                    quil.core/cursor (fn [& _])
+                    quil.core/background (fn [& _])
+                    quil.core/push-matrix (fn [] nil)
+                    quil.core/scale (fn [& _])
+                    quil.core/translate (fn [& _])
+                    quil.core/pop-matrix (fn [] nil)]
+        (sut/draw-scene
+         {:scene {:layer-rects [] :module-positions [] :edge-drawables []}
+          :declutter-mode :all
+          :scroll-x 0.0
+          :scroll-y 0.0
+          :viewport-height 300
+          :viewport-width 500
+          :zoom 1.0}
+         {:scaled-content-height (fn [_ _] 1000.0)
+          :point-in-toolbar? (fn [_ _] true)
+          :dependency-indicators (fn [& _] [{:tooltip-lines ["a->b(2)"]}])
+          :hovered-dependency (fn [& _] {:tooltip-lines ["a->b(2)"]})
+          :hovered-module-position (fn [& _] {:full-name "x"})
+          :hovered-layer-label (fn [& _] {:full-name "y"})
+          :draw-scene-content (fn [& _])
+          :draw-toolbar (fn [& _])
+          :draw-tooltip (fn [& _] (reset! tooltip-lines :tooltip))
+          :draw-tooltip-lines (fn [lines _ _] (reset! tooltip-lines lines))
+          :draw-scrollbar (fn [& _])}))
+      (should= nil @tooltip-lines)))
+
   (it "draw-scene-content renders dependency indicators via callback"
     (let [indicator-calls (atom nil)]
       (with-redefs [quil.core/background (fn [& _])

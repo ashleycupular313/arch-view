@@ -1,7 +1,6 @@
 (ns arch-view.render.ui.util.functional
   (:require [arch-view.render.ui.util.labels :as labels]
-            [arch-view.render.ui.util.layout :as layout]
-            [arch-view.render.ui.util.routing :as routing]))
+            [arch-view.render.ui.util.layout :as layout]))
 
 (def layer-y layout/layer-y)
 (def dominant-component layout/dominant-component)
@@ -33,21 +32,13 @@
 (def default-slot-scoring layout/default-slot-scoring)
 (def build-scene layout/build-scene)
 
-(def clamp-between routing/clamp-between)
-(def rect-center routing/rect-center)
-(def rect-edge-anchor routing/rect-edge-anchor)
-(def layer-edge-drawables routing/layer-edge-drawables)
-(def declutter-edge-drawables routing/declutter-edge-drawables)
-(def apply-parallel-arrow-spacing routing/apply-parallel-arrow-spacing)
-
-(defn- aggregate-layer-edges
-  [scene module->layer]
-  (routing/aggregate-layer-edges scene module->layer))
-
-(defn- assign-lane
-  [lanes edge]
-  (routing/assign-lane lanes edge))
-
-(defn- make-layer-base-edge
-  [layer-rects layer->centers layer-pair type]
-  (routing/make-layer-base-edge layer-rects layer->centers layer-pair type))
+(defn declutter-edge-drawables
+  [scene mode]
+  (case mode
+    :concrete (->> (:edge-drawables scene)
+                   (filter #(= :direct (:type %)))
+                   vec)
+    :abstract (->> (:edge-drawables scene)
+                   (filter #(= :abstract (:type %)))
+                   vec)
+    (:edge-drawables scene)))
