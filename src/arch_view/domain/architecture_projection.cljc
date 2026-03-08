@@ -175,12 +175,68 @@
                :abstract
                :concrete)])))
 
-(defn- node-cycle-map
-  [nodes node->modules-map cycle-modules]
-  (into {}
-        (for [n nodes]
-          [n (boolean (some #(contains? cycle-modules %)
-                            (get node->modules-map n)))])))
+(defn- graph-has-cycle?
+  [nodes edges]
+  (let [nodes (set (or nodes #{}))
+        indegree (reduce (fn [acc {:keys [to]}]
+                           (update acc to (fnil inc 0)))
+                         (zipmap nodes (repeat 0))
+                         edges)
+        outgoing (reduce (fn [acc {:keys [from to]}]
+                           (update acc from (fnil conj #{}) to))
+                         {}
+                         edges)]
+    (loop [queue (into clojure.lang.PersistentQueue/EMPTY
+                       (filter #(zero? (get indegree % 0)) nodes))
+           indeg indegree
+           seen 0]
+      (if (empty? queue)
+        (< seen (count nodes))
+        (let [n (peek queue)
+              queue' (pop queue)
+              nbrs (get outgoing n #{})
+              [indeg' queue'']
+              (reduce (fn [[m q] nbr]
+                        (let [next (dec (get m nbr 0))
+                              m' (assoc m nbr next)]
+                          (if (zero? next)
+                            [m' (conj q nbr)]
+                            [m' q])))
+                      [indeg queue']
+                      nbrs)]
+          (recur queue'' indeg' (inc seen)))))))
+
+(defn- subtree-cycle-detector
+  [all-modules classified]
+  (let [memo (atom {})]
+    (letfn [(subtree-cycle? [namespace-path]
+              (if (contains? @memo namespace-path)
+                (get @memo namespace-path)
+                (let [scoped (scoped-modules all-modules namespace-path)
+                      module->child-map (module->child scoped namespace-path)
+                      children (set (vals module->child-map))
+                      level-edges (->> classified
+                                       (keep (fn [{:keys [from to]}]
+                                               (let [from-child (get module->child-map from)
+                                                     to-child (get module->child-map to)]
+                                                 (when (and from-child to-child
+                                                            (not= from-child to-child))
+                                                   {:from from-child :to to-child}))))
+                                       set)
+                      level-cycle? (graph-has-cycle? children level-edges)
+                      descendant-cycle? (some true?
+                                              (for [child children
+                                                    :let [child-path (conj (vec namespace-path) child)
+                                                          deeper? (some (fn [m]
+                                                                          (> (count (namespace-segments m))
+                                                                             (count child-path)))
+                                                                        scoped)]
+                                                    :when deeper?]
+                                                (subtree-cycle? child-path)))
+                      result (boolean (or level-cycle? descendant-cycle?))]
+                  (swap! memo assoc namespace-path result)
+                  result)))]
+      subtree-cycle?)))
 
 (defn- node-leaf-map
   [nodes node->modules-map namespace-path]
@@ -266,9 +322,7 @@
   [architecture namespace-path]
   (let [all-modules (or (get-in architecture [:graph :nodes]) #{})
         module->source-file-all (or (get-in architecture [:graph :module->source-file]) {})
-        cycle-modules (->> (or (get-in architecture [:layout :feedback-edges]) #{})
-                           (mapcat (juxt :from :to))
-                           set)
+        subtree-cycle? (subtree-cycle-detector all-modules (:classified-edges architecture))
         scoped (scoped-modules all-modules namespace-path)
         module->child-map (module->child scoped namespace-path)
         by-child (modules-by-child scoped module->child-map)
@@ -278,7 +332,9 @@
         nodes (set (keys node->modules-map))
         abstract-source (or (get-in architecture [:graph :abstract-modules]) #{})
         module->kind (node-kind-map nodes node->modules-map abstract-source)
-        module->cycle? (node-cycle-map nodes node->modules-map cycle-modules)
+        module->cycle? (into {}
+                             (for [n nodes]
+                               [n (subtree-cycle? (conj (vec namespace-path) (node-child-name n)))]))
         module->leaf? (node-leaf-map nodes node->modules-map namespace-path)
         module->source-file (node-source-file-map nodes node->modules-map module->source-file-all namespace-path)
         module->display-label (node-display-label-map nodes module->leaf? module->source-file)
