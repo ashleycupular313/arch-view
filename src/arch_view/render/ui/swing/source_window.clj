@@ -1,3 +1,4 @@
+;; mutation-tested: 2026-03-08
 (ns arch-view.render.ui.swing.source-window
   (:require [clojure.java.io :as io]
             [arch-view.render.ui.util.source-html :as source-html])

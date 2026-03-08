@@ -20,4 +20,13 @@
       (should= "alpha.core" (sut/hovered-module positions 100.0 50.0 lines width))
       (should= nil (sut/hovered-module positions 0.0 0.0 lines width))
       (should-not= nil (sut/hovered-layer-label layers 30.0 20.0 width))
-      (should= nil (sut/hovered-layer-label layers 2.0 2.0 width)))))
+      (should= nil (sut/hovered-layer-label layers 2.0 2.0 width))))
+
+  (it "treats empty rendered lines as one line and respects layer right edge"
+    (let [positions [{:module "gamma.core" :x 200.0 :y 80.0 :display-label ""}]
+          lines (fn [_] [])
+          width (fn [s] (* 8.0 (count s)))
+          layer {:x 40.0 :y 20.0 :label "abc"}]
+      (should= "gamma.core" (sut/hovered-module positions 200.0 80.0 lines width))
+      (should= layer
+               (sut/hovered-layer-label [layer] (+ 40.0 10.0 (width "abc")) 42.0 width)))))

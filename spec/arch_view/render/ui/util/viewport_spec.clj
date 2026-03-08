@@ -17,4 +17,10 @@
       (should= false (sut/point-in-rect? rect 121.0 205.0))
       (should= 0.0 (sut/thumb-y->scroll 12.0 300.0 400.0))
       (should= 0.0 (sut/thumb-y->scroll 12.0 1200.0 400.0))
-      (should= 800.0 (sut/thumb-y->scroll 370.0 1200.0 400.0)))))
+      (should= 800.0 (sut/thumb-y->scroll 370.0 1200.0 400.0))))
+
+  (it "handles zero-scroll and empty-scene edge cases"
+    (should= 0.0 (sut/scroll-range 300.0 500.0))
+    (should= nil (sut/scrollbar-rect 500.0 500.0 0.0 900.0))
+    (should= 40 (sut/content-height-for-scene {:layer-rects []}))
+    (should= 200.0 (sut/content-width-for-scene {:layer-rects []} 180.0))))

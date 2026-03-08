@@ -18,9 +18,25 @@
       (should= true (str/includes? html "-&gt;MovementCombatVisibilityPort"))
       (should= false (str/includes? html "-&gt;<span class='cmt'>;MovementCombatVisibilityPort"))))
 
+  (it "does not treat semicolons inside strings as comments"
+    (let [html (sut/colorize-clojure-html "(println \"x;still-string\") ; outside")]
+      (should= true (str/includes? html "class='str'"))
+      (should= true (str/includes? html "class='cmt'>; outside</span>"))))
+
+  (it "handles escaped quote sequences while scanning comments"
+    (let [html (sut/colorize-clojure-html "(println \"a\\\\\\\"b\") ; c")]
+      (should= true (str/includes? html "class='str'"))
+      (should= true (str/includes? html "class='cmt'>; c</span>"))))
+
   (it "renders tab-expanded source lines and wrapper html"
     (let [lines (sut/source-lines->html "\t:ok\n")
           doc (sut/source->html "demo" "\t:ok\n")]
       (should= true (str/includes? lines "class='ln'>1</td>"))
       (should= true (str/includes? lines "<pre>  <span class='kw'>:ok</span></pre>"))
-      (should= true (str/includes? doc "<div class='hdr'>demo</div>")))))
+      (should= true (str/includes? doc "<div class='hdr'>demo</div>"))))
+
+  (it "handles nil inputs for line rendering and escaping paths"
+    (let [escaped (sut/colorize-clojure-html nil)
+          lines (sut/source-lines->html nil)]
+      (should= "" escaped)
+      (should= true (str/includes? lines "&nbsp;")))))

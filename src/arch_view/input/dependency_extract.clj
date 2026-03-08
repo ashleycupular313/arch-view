@@ -1,3 +1,4 @@
+;; mutation-tested: 2026-03-08
 (ns arch-view.input.dependency-extract
   (:require [clojure.java.io :as io]
             [arch-view.input.source-scan :as scan]

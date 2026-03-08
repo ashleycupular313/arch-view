@@ -1,3 +1,4 @@
+;; mutation-tested: 2026-03-08
 (ns arch-view.render.ui.util.source-html
   (:require [clojure.string :as str])
   (:import [java.util.regex Pattern]))

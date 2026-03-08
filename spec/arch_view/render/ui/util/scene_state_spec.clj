@@ -42,4 +42,9 @@
                                              :build-scene (fn [_] {:module-positions [{:module "root"}]})
                                              :attach-drillable-markers (fn [sc _ _] (assoc sc :tag :attached))})]
       (should= :attached (:tag built))
-      (should= [{:module "root"}] (:module-positions built)))))
+      (should= [{:module "root"}] (:module-positions built))))
+
+  (it "leaves scene unchanged when architecture is missing"
+    (let [scene {:module-positions [{:module "x"}]}
+          unchanged (sut/attach-drillable-markers scene nil [] (fn [& _] nil))]
+      (should= scene unchanged))))

@@ -61,4 +61,21 @@
         (should= #{"my.app.a" "my.app.b"}
                  (:nodes graph))
         (should= #{{:from "my.app.a" :to "my.app.b"}}
-                 (:edges graph))))))
+                 (:edges graph)))))
+
+  (it "treats eof runtime messages as end-of-file in full form scan"
+    (let [root (.toFile (java.nio.file.Files/createTempDirectory "arch-view-src-eof-msg" (make-array java.nio.file.attribute.FileAttribute 0)))
+          src-dir (doto (java.io.File. root "src") .mkdirs)
+          broken (java.io.File. src-dir "my/app/broken.clj")]
+      (.mkdirs (.getParentFile broken))
+      (spit broken "(ns my.app.broken")
+      (should= []
+               (#'sut/read-all-forms (.getAbsolutePath broken)))))
+
+  (it "returns false when polymorphic scan hits runtime exception"
+    (let [root (.toFile (java.nio.file.Files/createTempDirectory "arch-view-src-dispatch" (make-array java.nio.file.attribute.FileAttribute 0)))
+          src-dir (doto (java.io.File. root "src") .mkdirs)
+          bad-file (java.io.File. src-dir "my/app/bad.clj")]
+      (.mkdirs (.getParentFile bad-file))
+      (spit bad-file "(ns my.app.bad) #bad/dispatch []")
+      (should= false (#'sut/polymorphic-module? (.getAbsolutePath bad-file))))))

@@ -20,7 +20,7 @@
   :run {:main-opts ["-m" "arch-view.core"]}
   :mutate {:extra-deps {io.github.unclebob/clj-mutate
                         {:git/url "https://github.com/unclebob/clj-mutate"
-                         :git/sha "223da6c1a814265d0a714417def997ce7878a8da"}}
+                         :git/sha "1540a75fa66f1a03f1d31e4d0ef00843b7c2e7bf"}}
            :main-opts ["-m" "clj-mutate.core"]
            :extra-paths ["spec"]}
   :crap {:extra-deps {io.github.unclebob/crap4clj

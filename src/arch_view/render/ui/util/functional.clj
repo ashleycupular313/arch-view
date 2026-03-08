@@ -1,3 +1,4 @@
+;; mutation-tested: 2026-03-08
 (ns arch-view.render.ui.util.functional
   (:require [arch-view.render.ui.util.labels :as labels]
             [arch-view.render.ui.util.layout :as layout]))

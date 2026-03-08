@@ -1,3 +1,4 @@
+;; mutation-tested: 2026-03-08
 (ns arch-view.input.dependency-checker
   (:require [clojure.edn :as edn]))
 

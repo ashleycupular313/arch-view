@@ -21,4 +21,11 @@
                  :abstract-modules #{"my.app.port.api"}}
           classified (sut/classify-edges guidance graph)]
       (should= #{{:from "my.app.impl.core" :to "my.app.port.api" :type :abstract}}
-               classified))))
+               classified)))
+
+  (it "prefers abstract-modules set and defaults unmatched modules to concrete"
+    (let [guidance {:component-rules [{:kind :abstract :match "^my\\.app\\.api"}]}
+          abstract-kind (#'sut/module-kind guidance "my.app.port" #{"my.app.port"})
+          default-kind (#'sut/module-kind guidance "my.app.misc" #{})]
+      (should= :abstract abstract-kind)
+      (should= :concrete default-kind))))
