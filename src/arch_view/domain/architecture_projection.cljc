@@ -1,6 +1,5 @@
 (ns arch-view.domain.architecture-projection
   (:require [clojure.string :as str]
-            [clojure.java.io :as io]
             [arch-view.layout.layers :as layers]))
 
 (def ^:private mixed-leaf-suffix "|file")
@@ -12,7 +11,11 @@
 (defn source-filename
   [path]
   (when path
-    (.getName (io/file path))))
+    (let [normalized (-> (str path)
+                         (str/replace #"[\\]+" "/")
+                         (str/replace #"/+$" ""))]
+      (when-not (str/blank? normalized)
+        (last (str/split normalized #"/"))))))
 
 (defn- source-filename-base
   [path]

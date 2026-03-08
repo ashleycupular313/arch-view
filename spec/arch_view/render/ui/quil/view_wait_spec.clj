@@ -1,17 +1,15 @@
 (ns arch-view.render.ui.quil.view-wait-spec
   (:require [arch-view.render.ui.quil.view :as sut]
+            [arch-view.render.ui.util.quil-lifecycle :as lifecycle]
             [speclj.core :refer :all]))
 
 (describe "quil view helper coverage"
-  (it "checks safe displayability and stop condition"
-    (should= true (#'sut/safe-displayable? nil true))
-    (should= false (#'sut/safe-displayable? (Object.) false))
-    (let [looping-calls (atom 0)]
-      (with-redefs [sut/safe-looping? (fn [_] (swap! looping-calls inc) true)
-                    sut/safe-displayable? (fn [_ _] false)]
-        (sut/wait-until-closed! :sketch))
-      (should= 1 @looping-calls)
-      (sut/wait-until-closed! nil)))
+  (it "delegates wait-until-closed to lifecycle utility"
+    (let [called? (atom nil)]
+      (with-redefs [lifecycle/wait-until-closed! (fn [sketch]
+                                                   (reset! called? sketch))]
+        (sut/wait-until-closed! :s))
+      (should= :s @called?)))
 
   (it "builds sketch options in show"
     (let [captured (atom nil)
