@@ -30,4 +30,16 @@
                                             [[0 1] [2 1]]
                                             {0 0 1 2 2 0})]
       (should= 3 (count placement))
-      (should= 3 (count (set (vals placement)))))))
+      (should= 3 (count (set (vals placement))))))
+
+  (it "keeps peer rectangles within the canvas margins"
+    (let [canvas-width 1200.0
+          rect-width 105.6
+          peer-count 20
+          xs (mapv (fn [peer-idx]
+                     (#'sut/centered-peer-x canvas-width rect-width peer-idx peer-count))
+                   (range peer-count))
+          left (apply min xs)
+          right (apply max (map #(+ % rect-width) xs))]
+      (should (<= 24.0 left))
+      (should (<= right 1176.0)))))

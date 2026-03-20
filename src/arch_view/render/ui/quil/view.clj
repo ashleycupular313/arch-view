@@ -80,6 +80,7 @@
 
 (def ^:private racetrack-margin 24.0)
 (def ^:private reanalyze-feedback-ms 1000)
+(def ^:private horizontal-window-padding 28.0)
 
 (defn current-time-ms
   []
@@ -410,7 +411,8 @@
 
 (defn- scene-canvas-width
   [viewport-width]
-  (max 1200 (double (or viewport-width 1200.0))))
+  (max 1200.0 (- (double (or viewport-width 1200.0))
+                 horizontal-window-padding)))
 
 (defn- build-scene-for-path
   [architecture path viewport-width]

@@ -1,6 +1,8 @@
 ;; mutation-tested: 2026-03-08
 (ns arch-view.render.ui.util.view-bootstrap)
 
+(def ^:private horizontal-window-padding 28.0)
+
 (defn viewport-height-for-scene
   [scene content-height-for-scene]
   (let [content-height (if (seq (:layer-rects scene))
@@ -10,7 +12,8 @@
 
 (defn viewport-width-for-scene
   [scene content-width-for-scene]
-  (int (max 1200 (content-width-for-scene scene))))
+  (int (max 1200 (+ horizontal-window-padding
+                    (content-width-for-scene scene)))))
 
 (defn initial-sketch-state
   [{:keys [scene architecture has-architecture? viewport-height viewport-width reload-architecture]}]

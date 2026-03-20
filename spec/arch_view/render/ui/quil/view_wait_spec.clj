@@ -137,4 +137,4 @@
                                        :dependency-tooltip-scroll 0.0})]
           (should= 1600.0 (:viewport-width state))
           (should= {:path ["alpha"]} (:view @built))
-          (should= {:canvas-width 1600.0} (:opts @built))))))
+          (should= {:canvas-width 1572.0} (:opts @built))))))

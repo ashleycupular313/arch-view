@@ -330,10 +330,20 @@
 
 (defn- centered-peer-x
   [canvas-width rect-width peer-idx peer-count]
-  (let [center-x (/ (double canvas-width) 2.0)
-        spacing (* rect-width 1.5)
+  (let [usable-width (max (double rect-width)
+                          (- (double canvas-width) (* 2.0 racetrack-margin)))
+        preferred-spacing (* rect-width 1.5)
+        max-spacing (if (> peer-count 1)
+                      (max 0.0
+                           (/ (- usable-width rect-width)
+                              (double (dec peer-count))))
+                      0.0)
+        spacing (if (> peer-count 1)
+                  (min preferred-spacing max-spacing)
+                  0.0)
         group-width (+ rect-width (* (double (dec (max 1 peer-count))) spacing))
-        group-start (- center-x (/ group-width 2.0))]
+        group-start (+ racetrack-margin
+                       (/ (- usable-width group-width) 2.0))]
     (+ group-start (* (double peer-idx) spacing))))
 
 (defn- layer-rect-entry

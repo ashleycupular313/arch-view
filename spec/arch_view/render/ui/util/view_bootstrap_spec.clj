@@ -8,7 +8,7 @@
     (should= 900 (sut/viewport-height-for-scene {:layer-rects [1]} (constantly 1200)))
     (should= 550 (sut/viewport-height-for-scene {:layer-rects [1]} (constantly 550)))
     (should= 1200 (sut/viewport-width-for-scene {} (constantly 600)))
-    (should= 1420 (sut/viewport-width-for-scene {} (constantly 1420))))
+    (should= 1448 (sut/viewport-width-for-scene {} (constantly 1420))))
 
   (it "builds initial sketch state"
     (let [state (sut/initial-sketch-state {:scene {:x 1}
